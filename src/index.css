@@ -1,0 +1,97 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+}
+
+/* Custom Safe Area paddings and Mobile-Native configurations */
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background-color: #0f172a; /* Deep elegant background for desktop void space */
+}
+
+#root {
+  height: 100%;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Eliminate native pull-to-refresh bounce and scrolling noise for standalone native feel */
+body {
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  color: #0F172A; /* Slate-900 */
+}
+
+/* Safe Area Utility support for notch screens */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 12px);
+}
+
+/* Leaflet maps visual overrides to match the Clean Minimalism light theme */
+.leaflet-container {
+  height: 100% !important;
+  width: 100% !important;
+  font-family: "Inter", sans-serif;
+  background: #F1F5F9 !important;
+}
+
+/* Remove default Leaflet white borders and shadow widgets to keep UI clean and humbler */
+.leaflet-bar {
+  border: 1px solid #E2E8F0 !important;
+  border-radius: 12px !important;
+  overflow: hidden;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05) !important;
+}
+
+.leaflet-bar a {
+  background-color: #FFFFFF !important;
+  color: #0F172A !important;
+  border-bottom: 1px solid #E2E8F0 !important;
+}
+
+.leaflet-bar a:hover {
+  background-color: #F8FAFC !important;
+}
+
+.leaflet-popup-content-wrapper {
+  background: #FFFFFF !important;
+  border: 1px solid #E2E8F0 !important;
+  border-radius: 16px !important;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.02) !important;
+  padding: 0 !important;
+}
+
+.leaflet-popup-content {
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.leaflet-popup-tip {
+  background: #FFFFFF !important;
+  border: 1px solid #E2E8F0 !important;
+}
+
+/* Leaflet close button styling override */
+.leaflet-popup-close-button {
+  color: #64748B !important;
+  padding: 8px 8px 0 0 !important;
+}
+
+.leaflet-popup-close-button:hover {
+  color: #EF4444 !important;
+}
+
+/* Custom DivIcon marker support styles */
+.custom-leaflet-marker, .custom-reporting-marker {
+  background: none !important;
+  border: none !important;
+}

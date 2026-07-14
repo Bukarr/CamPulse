@@ -1,0 +1,6 @@
+{
+  "name": "CamPulse",
+  "description": "A Progressive Web App for Ahmadu Bello University (ABU) Zaria students to report campus maintenance issues, and for administrators and technicians to track, assign, and resolve them.",
+  "requestFramePermissions": ["geolocation", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
