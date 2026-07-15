@@ -60,6 +60,65 @@ export default function AdminDashboard({ reports, onAssignTechnician, onUpdateSt
   const [triageSummary, setTriageSummary] = useState<string>('');
   const [isGeneratingTriage, setIsGeneratingTriage] = useState(false);
 
+  // Technician creation states
+  const [newTechName, setNewTechName] = useState('');
+  const [newTechEmail, setNewTechEmail] = useState('');
+  const [newTechSkills, setNewTechSkills] = useState<string[]>([]);
+  const [isRegisteringTech, setIsRegisteringTech] = useState(false);
+  const [techRegSuccess, setTechRegSuccess] = useState<string | null>(null);
+  const [techRegError, setTechRegError] = useState<string | null>(null);
+
+  const handleRegisterTechnician = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTechName.trim() || !newTechEmail.trim()) {
+      setTechRegError('Please provide both name and email.');
+      return;
+    }
+    if (newTechSkills.length === 0) {
+      setTechRegError('Please assign at least one category specialty tag.');
+      return;
+    }
+
+    setIsRegisteringTech(true);
+    setTechRegSuccess(null);
+    setTechRegError(null);
+
+    try {
+      const res = await fetch('/api/admin/technicians', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newTechName.trim(),
+          email: newTechEmail.trim(),
+          skill_tags: newTechSkills
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to register technician');
+      }
+
+      setTechRegSuccess(`Successfully registered ${newTechName} as an authorized campus technician.`);
+      setNewTechName('');
+      setNewTechEmail('');
+      setNewTechSkills([]);
+      fetchTechniciansAndStats();
+    } catch (err: any) {
+      setTechRegError(err.message || 'Failed to register technician.');
+    } finally {
+      setIsRegisteringTech(false);
+    }
+  };
+
+  const toggleSkillSelection = (category: string) => {
+    if (newTechSkills.includes(category)) {
+      setNewTechSkills(newTechSkills.filter(s => s !== category));
+    } else {
+      setNewTechSkills([...newTechSkills, category]);
+    }
+  };
+
   const fetchTriageSummary = async () => {
     setIsGeneratingTriage(true);
     try {
@@ -373,6 +432,88 @@ export default function AdminDashboard({ reports, onAssignTechnician, onUpdateSt
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Dedicated Technician Profile Registration Utility */}
+      <div id="tech-registration-panel" className="bg-white border border-slate-200/80 p-4 rounded-xl shadow-xs space-y-4">
+        <div className="flex items-center gap-1.5 border-b border-slate-100 pb-2.5">
+          <Wrench className="text-emerald-600" size={16} />
+          <div>
+            <h3 className="text-xs font-bold text-slate-800">Dedicated Technician Profile Creation</h3>
+            <p className="text-[9px] text-slate-400">Register new specialized engineering staff profiles for automatic report category routing</p>
+          </div>
+        </div>
+
+        {techRegSuccess && (
+          <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl text-xs font-semibold">
+            🎉 {techRegSuccess}
+          </div>
+        )}
+
+        {techRegError && (
+          <div className="p-3 bg-rose-50 border border-rose-200 text-rose-600 rounded-xl text-xs font-semibold">
+            ⚠️ {techRegError}
+          </div>
+        )}
+
+        <form onSubmit={handleRegisterTechnician} className="space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[9px] uppercase tracking-wider text-slate-400 font-extrabold mb-1">Technician Full Name</label>
+              <input
+                type="text"
+                required
+                placeholder="E.g., Aliyu Ibrahim"
+                value={newTechName}
+                onChange={(e) => setNewTechName(e.target.value)}
+                className="w-full text-xs bg-slate-50 border border-slate-200/80 rounded-xl p-2.5 text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[9px] uppercase tracking-wider text-slate-400 font-extrabold mb-1">ABU Email Address</label>
+              <input
+                type="email"
+                required
+                placeholder="E.g., aliyu@abu.edu.ng"
+                value={newTechEmail}
+                onChange={(e) => setNewTechEmail(e.target.value)}
+                className="w-full text-xs bg-slate-50 border border-slate-200/80 rounded-xl p-2.5 text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-[9px] uppercase tracking-wider text-slate-400 font-extrabold mb-1.5">Specialized Maintenance Categories</label>
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(CATEGORY_LABELS).map(([catVal, label]) => {
+                const isSelected = newTechSkills.includes(catVal);
+                return (
+                  <button
+                    type="button"
+                    key={catVal}
+                    onClick={() => toggleSkillSelection(catVal)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border cursor-pointer ${
+                      isSelected
+                        ? 'bg-emerald-600 text-white border-emerald-600'
+                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            disabled={isRegisteringTech}
+            className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-xs py-2.5 rounded-xl transition-all cursor-pointer text-center font-sans"
+          >
+            {isRegisteringTech ? 'Registering Technician...' : 'Register Technician Profile'}
+          </button>
+        </form>
       </div>
 
       {/* Filter and search controls */}

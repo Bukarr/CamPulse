@@ -198,7 +198,7 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
                       onClick={() => handleUpdate(report.id, 'in_progress')}
                       className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-100 disabled:text-slate-400 text-white font-bold text-xs py-2.5 rounded-xl transition-colors cursor-pointer text-center"
                     >
-                      🚀 Start Inspection
+                      🚀 Inspection Started
                     </button>
                   )}
                   {report.status === 'in_progress' && (
@@ -207,7 +207,7 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
                       onClick={() => handleUpdate(report.id, 'resolved')}
                       className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-100 disabled:text-slate-400 text-white font-bold text-xs py-2.5 rounded-xl flex items-center justify-center gap-1 transition-colors cursor-pointer text-center"
                     >
-                      <CheckCircle size={13} /> Confirm Finished
+                      <CheckCircle size={13} /> Task Completed
                     </button>
                   )}
                 </div>
@@ -300,7 +300,7 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
                 disabled={isSubmitting}
                 className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-100 disabled:text-slate-400 text-white font-bold text-xs py-2.5 rounded-xl transition-colors cursor-pointer text-center"
               >
-                {isSubmitting ? 'Submitting resolution...' : 'Confirm Finished (Notifies Admin & Reporters)'}
+                {isSubmitting ? 'Submitting resolution...' : 'Confirm Task Completed (Notifies Admin & Reporters)'}
               </button>
             </form>
           </div>

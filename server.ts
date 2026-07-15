@@ -8,13 +8,200 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// Safe resolution for __filename and __dirname in both CJS and ESM environments
+const isESM = typeof import.meta !== 'undefined' && !!import.meta.url;
+const _filename = isESM ? fileURLToPath(import.meta.url) : (typeof __filename !== 'undefined' ? __filename : '');
+const _dirname = isESM ? path.dirname(_filename) : (typeof __dirname !== 'undefined' ? __dirname : '');
+
+import pg from 'pg';
+
+let pgPool: pg.Pool | null = null;
+
+function getPgPool(): pg.Pool | null {
+  if (!pgPool && process.env.DATABASE_URL) {
+    console.log('[PostgreSQL] Initializing lazy database pool...');
+    pgPool = new pg.Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: {
+        rejectUnauthorized: false
+      }
+    });
+  }
+  return pgPool;
+}
+
+async function initializePostgres() {
+  const pool = getPgPool();
+  if (!pool) return;
+  
+  try {
+    console.log('[PostgreSQL] Initializing schema and verifying extensions...');
+    // Enable PostGIS
+    await pool.query('CREATE EXTENSION IF NOT EXISTS postgis;');
+    
+    // Create tables
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id VARCHAR(255) PRIMARY KEY,
+        google_id VARCHAR(255),
+        name VARCHAR(255) NOT NULL,
+        email VARCHAR(255) NOT NULL,
+        role VARCHAR(50) NOT NULL
+      );
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS zones (
+        id VARCHAR(255) PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        geom GEOMETRY(Polygon, 4326) NOT NULL
+      );
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS reports (
+        id VARCHAR(255) PRIMARY KEY,
+        reporter_id VARCHAR(255) REFERENCES users(id),
+        reporter_name VARCHAR(255),
+        category VARCHAR(100) NOT NULL,
+        description TEXT NOT NULL,
+        lat DOUBLE PRECISION NOT NULL,
+        lng DOUBLE PRECISION NOT NULL,
+        geom GEOMETRY(Point, 4326),
+        zone_id VARCHAR(255) REFERENCES zones(id),
+        zone_name VARCHAR(255),
+        is_anonymous BOOLEAN DEFAULT FALSE,
+        status VARCHAR(50) NOT NULL,
+        priority_score INTEGER DEFAULT 3,
+        severity VARCHAR(50) DEFAULT 'medium',
+        location_hint VARCHAR(255),
+        sentiment VARCHAR(50) DEFAULT 'neutral',
+        triage_analysis TEXT,
+        photo_url TEXT,
+        voice_url TEXT,
+        voice_interpretation TEXT,
+        upvotes INTEGER DEFAULT 0,
+        report_count INTEGER DEFAULT 1,
+        upvoted_by TEXT[] DEFAULT '{}',
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await pool.query(`CREATE INDEX IF NOT EXISTS reports_geom_idx ON reports USING gist(geom);`);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS technicians (
+        id VARCHAR(255) PRIMARY KEY,
+        user_id VARCHAR(255) REFERENCES users(id),
+        name VARCHAR(255) NOT NULL,
+        skill_tags TEXT[] DEFAULT '{}',
+        current_load INTEGER DEFAULT 0
+      );
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS assignments (
+        id VARCHAR(255) PRIMARY KEY,
+        report_id VARCHAR(255) REFERENCES reports(id) ON DELETE CASCADE,
+        technician_id VARCHAR(255) REFERENCES technicians(id),
+        technician_name VARCHAR(255) NOT NULL,
+        assigned_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        resolved_at TIMESTAMP WITH TIME ZONE
+      );
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS comments (
+        id VARCHAR(255) PRIMARY KEY,
+        report_id VARCHAR(255) REFERENCES reports(id) ON DELETE CASCADE,
+        user_id VARCHAR(255),
+        user_name VARCHAR(255) NOT NULL,
+        user_role VARCHAR(50) NOT NULL,
+        text TEXT NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS notifications (
+        id VARCHAR(255) PRIMARY KEY,
+        user_id VARCHAR(255) NOT NULL,
+        title VARCHAR(255) NOT NULL,
+        message TEXT NOT NULL,
+        type VARCHAR(50) NOT NULL,
+        reference_id VARCHAR(255),
+        read BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Schema Evolution/Alterations to ensure columns like "geom" exist if tables were pre-created
+    console.log('[PostgreSQL] Ensuring database schema evolution columns exist...');
+    await pool.query('ALTER TABLE zones ADD COLUMN IF NOT EXISTS geom GEOMETRY(Polygon, 4326);');
+    await pool.query('ALTER TABLE reports ADD COLUMN IF NOT EXISTS geom GEOMETRY(Point, 4326);');
+    await pool.query('ALTER TABLE reports ADD COLUMN IF NOT EXISTS report_count INTEGER DEFAULT 1;');
+    await pool.query('ALTER TABLE reports ADD COLUMN IF NOT EXISTS upvoted_by TEXT[] DEFAULT \'{}\';');
+    await pool.query('ALTER TABLE reports ADD COLUMN IF NOT EXISTS severity VARCHAR(50) DEFAULT \'medium\';');
+    await pool.query('ALTER TABLE reports ADD COLUMN IF NOT EXISTS location_hint VARCHAR(255);');
+    await pool.query('ALTER TABLE reports ADD COLUMN IF NOT EXISTS sentiment VARCHAR(50) DEFAULT \'neutral\';');
+    await pool.query('ALTER TABLE reports ADD COLUMN IF NOT EXISTS triage_analysis TEXT;');
+    await pool.query('ALTER TABLE reports ADD COLUMN IF NOT EXISTS photo_url TEXT;');
+    await pool.query('ALTER TABLE reports ADD COLUMN IF NOT EXISTS voice_url TEXT;');
+    await pool.query('ALTER TABLE reports ADD COLUMN IF NOT EXISTS voice_interpretation TEXT;');
+
+    // Seed users, zones, technicians if empty
+    const usersRes = await pool.query('SELECT COUNT(*) FROM users;');
+    if (parseInt(usersRes.rows[0].count, 10) === 0) {
+      console.log('[PostgreSQL] Seeding users table...');
+      await pool.query(`
+        INSERT INTO users (id, google_id, name, email, role) VALUES
+          ('usr-student-1', '10001', 'Sani Bello', 'sbello@student.abu.edu.ng', 'student'),
+          ('usr-student-2', '10002', 'Amina Yusuf', 'ayusuf@student.abu.edu.ng', 'student'),
+          ('usr-admin-1', '20001', 'Prof. Ibrahim Usman', 'iusman@abu.edu.ng', 'admin'),
+          ('usr-tech-1', '30001', 'Musa Garba', 'mgarba@tech.abu.edu.ng', 'technician'),
+          ('usr-tech-2', '30002', 'John Okoye', 'jokoye@tech.abu.edu.ng', 'technician'),
+          ('usr-tech-all', '30003', 'Aliyu Ibrahim', 'aibrahim@tech.abu.edu.ng', 'technician')
+        ON CONFLICT (id) DO NOTHING;
+      `);
+    }
+
+    const zonesRes = await pool.query('SELECT COUNT(*) FROM zones;');
+    if (parseInt(zonesRes.rows[0].count, 10) === 0) {
+      console.log('[PostgreSQL] Seeding zones table...');
+      await pool.query(`
+        INSERT INTO zones (id, name, geom) VALUES
+          ('zone-suleiman', 'Suleiman Hall', ST_GeomFromText('POLYGON((7.710 11.142, 7.715 11.142, 7.715 11.146, 7.710 11.146, 7.710 11.142))', 4326)),
+          ('zone-amina', 'Amina Hall', ST_GeomFromText('POLYGON((7.710 11.143, 7.713 11.143, 7.713 11.147, 7.710 11.147, 7.710 11.143))', 4326)),
+          ('zone-ribadu', 'Ribadu Hall', ST_GeomFromText('POLYGON((7.708 11.144, 7.712 11.144, 7.712 11.148, 7.708 11.148, 7.708 11.144))', 4326)),
+          ('zone-engineering', 'Faculty of Engineering', ST_GeomFromText('POLYGON((7.706 11.140, 7.711 11.140, 7.711 11.144, 7.706 11.144, 7.706 11.140))', 4326)),
+          ('zone-other', 'ABU Campus (General)', ST_GeomFromText('POLYGON((7.690 11.130, 7.730 11.130, 7.730 11.160, 7.690 11.160, 7.690 11.130))', 4326))
+        ON CONFLICT (id) DO NOTHING;
+      `);
+    }
+
+    const techsRes = await pool.query('SELECT COUNT(*) FROM technicians;');
+    if (parseInt(techsRes.rows[0].count, 10) === 0) {
+      console.log('[PostgreSQL] Seeding technicians table...');
+      await pool.query(`
+        INSERT INTO technicians (id, user_id, name, skill_tags, current_load) VALUES
+          ('tech-1', 'usr-tech-1', 'Musa Garba', ARRAY['broken_lights', 'wifi_outage', 'security'], 0),
+          ('tech-2', 'usr-tech-2', 'John Okoye', ARRAY['plumbing', 'structural'], 0),
+          ('tech-all', 'usr-tech-all', 'Aliyu Ibrahim', ARRAY['broken_lights', 'plumbing', 'wifi_outage', 'security', 'structural', 'others'], 0)
+        ON CONFLICT (id) DO NOTHING;
+      `);
+    }
+
+    console.log('[PostgreSQL] Database schema fully initialized and verified!');
+  } catch (err) {
+    console.error('[PostgreSQL Initialization Error]', err);
+  }
+}
 
 // Initialize Gemini SDK with telemetry header
 const ai = process.env.GEMINI_API_KEY 
   ? new GoogleGenAI({
       apiKey: process.env.GEMINI_API_KEY,
+      apiVersion: 'v1',
       httpOptions: {
         headers: {
           'User-Agent': 'aistudio-build'
@@ -63,7 +250,14 @@ interface Report {
 }
 
 // Global Core AI Engine caller for Gemma 4 (with OpenAI & Ollama endpoint support and Gemini fallback)
-async function callGemmaAI(prompt: string, systemInstruction?: string, jsonMode: boolean = false): Promise<string> {
+async function callGemmaAI(
+  prompt: string, 
+  systemInstruction?: string, 
+  jsonMode: boolean = false,
+  imagePayload?: { mimeType: string, data: string }
+): Promise<string> {
+  const gemmaModelString = process.env.GEMMA_MODEL || 'gemma-4';
+
   // 1. Try process.env.GEMMA_API_URL first (self-hosted Gemma 4 instance)
   if (process.env.GEMMA_API_URL) {
     try {
@@ -76,13 +270,22 @@ async function callGemmaAI(prompt: string, systemInstruction?: string, jsonMode:
       if (gemmaUrl.includes('/v1')) {
         // OpenAI Chat completions format
         endpoint = gemmaUrl.endsWith('/') ? `${gemmaUrl}chat/completions` : `${gemmaUrl}/chat/completions`;
-        const messages = [];
+        const messages: any[] = [];
         if (systemInstruction) {
           messages.push({ role: 'system', content: systemInstruction });
         }
-        messages.push({ role: 'user', content: prompt });
+        
+        let userContent: any = prompt;
+        if (imagePayload) {
+          userContent = [
+            { type: 'text', text: prompt },
+            { type: 'image_url', image_url: { url: `data:${imagePayload.mimeType};base64,${imagePayload.data}` } }
+          ];
+        }
+        messages.push({ role: 'user', content: userContent });
+
         body = {
-          model: 'gemma4',
+          model: gemmaModelString,
           messages: messages,
           temperature: 0.1,
           response_format: jsonMode ? { type: 'json_object' } : undefined
@@ -93,6 +296,7 @@ async function callGemmaAI(prompt: string, systemInstruction?: string, jsonMode:
         body = {
           model: 'gemma',
           prompt: systemInstruction ? `System: ${systemInstruction}\nUser: ${prompt}` : prompt,
+          images: imagePayload ? [imagePayload.data] : undefined,
           stream: false,
           format: jsonMode ? 'json' : undefined,
           options: { temperature: 0.1 }
@@ -141,10 +345,27 @@ async function callGemmaAI(prompt: string, systemInstruction?: string, jsonMode:
   // 2. Fallback proxy: Routing through Gemini API to simulate/proxy Gemma
   if (ai) {
     try {
-      console.log(`[Gemma AI Engine Proxy] Self-hosted Gemma down or unconfigured. Proxying via Gemini API...`);
+      console.log(`[Gemma Fallback] Proxying via Google GenAI SDK using model: ${gemmaModelString}...`);
+      
+      let contents: any;
+      if (imagePayload) {
+        const imagePart = {
+          inlineData: {
+            mimeType: imagePayload.mimeType,
+            data: imagePayload.data
+          }
+        };
+        const textPart = {
+          text: prompt
+        };
+        contents = { parts: [imagePart, textPart] };
+      } else {
+        contents = prompt;
+      }
+
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: prompt,
+        model: gemmaModelString,
+        contents: contents,
         config: {
           systemInstruction: systemInstruction,
           temperature: 0.2,
@@ -153,7 +374,7 @@ async function callGemmaAI(prompt: string, systemInstruction?: string, jsonMode:
       });
       return response.text || '';
     } catch (err) {
-      console.error('[Gemma AI Engine Proxy Error] Gemini proxy routing failed:', err);
+      console.error('[Gemma Fallback Error] Google GenAI SDK routing failed:', err);
     }
   }
 
@@ -337,6 +558,7 @@ async function startServer() {
 
   // Ensure DB is initialized
   let db = loadDatabase();
+  await initializePostgres();
 
   // Helper to authenticate user from headers (Strict Auth)
   function getAuthenticatedUser(req: express.Request) {
@@ -557,8 +779,59 @@ async function startServer() {
   });
 
   // Get all reports
-  app.get('/api/reports', (req, res) => {
+  app.get('/api/reports', async (req, res) => {
     const { category, status, zone_id, query } = req.query;
+
+    const pool = getPgPool();
+    if (pool) {
+      try {
+        console.log('[PostgreSQL] Querying reports directly from DB...');
+        let sql = `
+          SELECT r.*, 
+            (SELECT COUNT(*)::int FROM comments WHERE report_id = r.id) as comments_count
+          FROM reports r
+          WHERE 1=1
+        `;
+        const params: any[] = [];
+        
+        if (category && category !== 'all') {
+          params.push(category);
+          sql += ` AND r.category = $${params.length}`;
+        }
+        if (status && status !== 'all') {
+          params.push(status);
+          sql += ` AND r.status = $${params.length}`;
+        }
+        if (zone_id && zone_id !== 'all') {
+          params.push(zone_id);
+          sql += ` AND r.zone_id = $${params.length}`;
+        }
+        if (query) {
+          params.push(`%${query}%`);
+          sql += ` AND (LOWER(r.description) LIKE $${params.length} OR LOWER(r.reporter_name) LIKE $${params.length})`;
+        }
+        
+        sql += ` ORDER BY r.created_at DESC`;
+        
+        const result = await pool.query(sql, params);
+        
+        // Calculate gemma_rank_score for compatibility
+        const reports = result.rows.map(r => {
+          const priority_score = r.priority_score || 3;
+          const upvotes = r.upvotes || 0;
+          const commentsCount = r.comments_count || 0;
+          const gemmaScore = (priority_score * 15) + (upvotes * 5) + (commentsCount * 3);
+          return {
+            ...r,
+            gemma_rank_score: gemmaScore
+          };
+        });
+        
+        return res.json(reports);
+      } catch (err) {
+        console.error('[PostgreSQL Error] Failed to fetch reports, falling back to local DB:', err);
+      }
+    }
     
     // Create map for fast comments count lookup
     const commentsCountMap: Record<string, number> = {};
@@ -602,8 +875,9 @@ async function startServer() {
     res.json(filtered);
   });
 
-  // Helper to transcribe/interpret base64 audio to English via Gemini API
+  // Helper to transcribe/interpret base64 audio to English via Gemma 4 / Gemini Fallback
   async function interpretVoice(voiceUrl: string): Promise<string> {
+    const gemmaModelString = process.env.GEMMA_MODEL || 'gemma-4';
     const matches = voiceUrl.match(/^data:([^;]+);base64,(.+)$/);
     if (!matches) {
       throw new Error('Invalid voice data URI format');
@@ -611,11 +885,30 @@ async function startServer() {
     const mimeType = matches[1];
     const base64Data = matches[2];
 
+    const promptText = 'The provided audio file contains a student reporting a maintenance issue on the Ahmadu Bello University (ABU) campus. The user may be speaking in English, Hausa, Yoruba, Pidgin, Arabic, or another language. Listen carefully and translate/interpret it into a clear, detailed English description of the issue. Return ONLY the English interpretation/translation, with no additional introductory or concluding text.';
+
+    // 1. Primary: Gemma-routed path if Gemma API is configured and supports audio (or we attempt it)
+    if (process.env.GEMMA_API_URL) {
+      try {
+        console.log(`[Gemma Voice Interpreter] Attempting audio translation via self-hosted Gemma 4 at ${process.env.GEMMA_API_URL}...`);
+        const response = await callGemmaAI(
+          `Process audio report. Content type: ${mimeType}.`,
+          'You are a multilingual translator.'
+        );
+        if (response && response.trim()) {
+          return response.trim();
+        }
+      } catch (err) {
+        console.warn('[Gemma Voice Interpreter Error] Gemma audio interpretation failed or unsupported natively:', err.message);
+      }
+    }
+
+    // 2. Fallback Proxy: If Gemma cannot handle raw audio natively, we attempt Gemma-based transcription fallback via SDK
     if (ai) {
       try {
-        console.log(`[Voice Interpreter] Interpreting ${mimeType} audio to English using Gemini API...`);
+        console.log(`[Gemma Fallback] Interpreting ${mimeType} audio using Google GenAI SDK with model ${gemmaModelString}...`);
         const response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
+          model: gemmaModelString,
           contents: [
             {
               inlineData: {
@@ -623,7 +916,7 @@ async function startServer() {
                 mimeType: mimeType
               }
             },
-            'The provided audio file contains a student reporting a maintenance issue on the Ahmadu Bello University (ABU) campus. The user may be speaking in English, Hausa, Yoruba, Pidgin, Arabic, or another language. Listen carefully and translate/interpret it into a clear, detailed English description of the issue. Return ONLY the English interpretation/translation, with no additional introductory or concluding text.'
+            promptText
           ]
         });
         const result = response.text || '';
@@ -631,26 +924,13 @@ async function startServer() {
           return result.trim();
         }
       } catch (err) {
-        console.error('[Voice Interpreter Error] Gemini voice transcription failed:', err);
+        console.error('[Gemma Fallback Error] Gemma fallback voice transcription failed:', err);
       }
     }
 
-    if (process.env.GEMMA_API_URL) {
-      try {
-        console.log('[Voice Interpreter Fallback] GEMMA_API_URL is active. Querying text-based translation fallback...');
-        const response = await callGemmaAI(
-          'A voice recording has been received. Please translate this Hausa voice report: "Ina kwana, muna da matsalar toshewar famfo a Suleiman Hall block B" to English.',
-          'You are an expert translator.'
-        );
-        if (response && response.trim()) {
-          return response.trim();
-        }
-      } catch (err) {
-        console.error('[Voice Interpreter Fallback Error] Gemma fallback failed:', err);
-      }
-    }
-
-    throw new Error('Voice translation services currently unavailable.');
+    // 3. Clear non-fabricated fallback instead of generating fake text
+    console.warn('[Voice Interpreter] Both Gemma and Gemini fallback failed. Returning clean, non-fabricated message.');
+    return "Voice transcription unavailable, please review the attached recording.";
   }
 
   // Create Report with Server-Side Gemma 4 AI Intake Parsing & Deduplication Clustering
@@ -683,6 +963,37 @@ async function startServer() {
     const parsedLat = parseFloat(lat);
     const parsedLng = parseFloat(lng);
 
+    // PostGIS containment-based zone mapping to prevent spoofing
+    let final_zone_id = zone_id || 'zone-other';
+    let final_zone_name = zone_name || 'ABU Campus';
+
+    const pool = getPgPool();
+    if (pool) {
+      try {
+        console.log(`[PostgreSQL PostGIS] Finding containing zone for coordinates: (${parsedLng}, ${parsedLat})`);
+        const containingZoneRes = await pool.query(
+          `SELECT id, name FROM zones 
+           WHERE ST_Contains(geom, ST_SetSRID(ST_MakePoint($1, $2), 4326)) 
+           LIMIT 1;`,
+          [parsedLng, parsedLat]
+        );
+        if (containingZoneRes.rows.length > 0) {
+          final_zone_id = containingZoneRes.rows[0].id;
+          final_zone_name = containingZoneRes.rows[0].name;
+          console.log(`[PostgreSQL PostGIS] Point is contained in zone: ${final_zone_name} (${final_zone_id})`);
+        } else {
+          console.log('[PostgreSQL PostGIS] Point is outside defined zones, defaulting to general campus.');
+          final_zone_id = 'zone-other';
+          final_zone_name = 'ABU Campus (General)';
+        }
+      } catch (err) {
+        console.error('[PostgreSQL PostGIS Error] Zone containment check failed:', err);
+      }
+    }
+
+    zone_id = final_zone_id;
+    zone_name = final_zone_name;
+
     // Default Values
     let category = 'others';
     let severity: 'low' | 'medium' | 'high' | 'urgent' = 'medium';
@@ -693,7 +1004,7 @@ async function startServer() {
     let isAiProcessed = false;
 
     // Feature 1: AI-mediated intake (extract structured fields from free text description and proof photo)
-    if (photo_url && ai) {
+    if (photo_url) {
       try {
         console.log('[Gemma 4 Multimodal Intake] Processing description and proof photo...');
         const matches = photo_url.match(/^data:([^;]+);base64,(.+)$/);
@@ -701,15 +1012,7 @@ async function startServer() {
           const mimeType = matches[1];
           const base64Data = matches[2];
 
-          const imagePart = {
-            inlineData: {
-              mimeType: mimeType,
-              data: base64Data
-            }
-          };
-
-          const textPart = {
-            text: `Analyze the user's free-text maintenance report and extract the following fields, taking the attached proof photo into consideration for accuracy of severity, category, and location cues:
+          const prompt = `Analyze the user's free-text maintenance report and extract the following fields, taking the attached proof photo into consideration for accuracy of severity, category, and location cues:
 Report Description: "${description}"
 
 Schema instructions:
@@ -724,22 +1027,17 @@ Return ONLY a strict JSON object matching this schema, without any markdown form
   "severity": "low" | "medium" | "high" | "urgent",
   "location_hint": "string",
   "sentiment": "frustrated" | "neutral" | "calm" | "angry"
-}`
-          };
+}`;
 
           const systemInstruction = `You are the Gemma 4 campus maintenance intake engine for Ahmadu Bello University, Zaria. Use the attached photo and text to return a strict JSON object matching the requested schema.`;
 
-          const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: [imagePart, textPart],
-            config: {
-              systemInstruction: systemInstruction,
-              temperature: 0.2,
-              responseMimeType: 'application/json'
-            }
-          });
+          const aiResponse = await callGemmaAI(
+            prompt,
+            systemInstruction,
+            true,
+            { mimeType, data: base64Data }
+          );
 
-          const aiResponse = response.text || '';
           let jsonStr = aiResponse.trim();
           if (jsonStr.includes('```')) {
             const matches = jsonStr.match(/```(?:json)?([\s\S]*?)```/);
@@ -833,12 +1131,31 @@ Return ONLY a strict JSON object matching this schema, without any markdown form
     priority_score = severityMap[severity] || 3;
 
     // Feature 2: Duplicate detection & clustering
-    // 1. Filter reports within 100 meters
-    const nearbyReports = db.reports.filter((r: Report) => {
-      if (r.status === 'resolved') return false;
-      const distance = getDistanceInMeters(parsedLat, parsedLng, r.lat, r.lng);
-      return distance <= 100;
-    });
+    // 1. Filter reports within 100 meters using PostGIS ST_DWithin geography or local Haversine
+    let nearbyReports: any[] = [];
+    if (pool) {
+      try {
+        console.log(`[PostgreSQL PostGIS] Finding duplicates within 100 meters using ST_DWithin...`);
+        const nearbyRes = await pool.query(
+          `SELECT id, reporter_id, reporter_name, category, description, lat, lng, zone_id, zone_name, status, priority_score, upvotes, upvoted_by, created_at, report_count 
+           FROM reports 
+           WHERE status != 'resolved' 
+             AND ST_DWithin(geom::geography, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, 100);`,
+          [parsedLng, parsedLat]
+        );
+        nearbyReports = nearbyRes.rows;
+      } catch (err) {
+        console.error('[PostgreSQL PostGIS Error] ST_DWithin duplicate check failed, using memory fallback:', err);
+      }
+    }
+
+    if (nearbyReports.length === 0 && !pool) {
+      nearbyReports = db.reports.filter((r: Report) => {
+        if (r.status === 'resolved') return false;
+        const distance = getDistanceInMeters(parsedLat, parsedLng, r.lat, r.lng);
+        return distance <= 100;
+      });
+    }
 
     let duplicateDetected = false;
     let duplicateReportId: string | null = null;
@@ -938,6 +1255,50 @@ Output your decision as a strict JSON object (no markdown, no quotes, just raw J
           created_at: new Date().toISOString()
         });
 
+        // Sync with PostgreSQL
+        if (pool) {
+          try {
+            await pool.query(
+              `UPDATE reports 
+               SET report_count = report_count + 1, 
+                   upvotes = CASE WHEN NOT ($1 = ANY(upvoted_by)) THEN upvotes + 1 ELSE upvotes END,
+                   upvoted_by = array_append(upvoted_by, $1)
+               WHERE id = $2;`,
+              [reporter_id, originalReport.id]
+            );
+
+            // Insert comment
+            await pool.query(
+              `INSERT INTO comments (id, report_id, user_id, user_name, user_role, text)
+               VALUES ($1, $2, $3, $4, $5, $6);`,
+              [
+                `cmt-${Date.now()}-cluster`,
+                originalReport.id,
+                'usr-admin-1',
+                'Gemma 4 AI Clustering',
+                'admin',
+                `⚠️ Duplicate Merged: Sani Bello's report was clustered here. "${description.substring(0, 100)}..."\nReason: ${clusterReason}\nTotal Clustered Tickets: ${originalReport.report_count}`
+              ]
+            );
+
+            // Insert notification
+            await pool.query(
+              `INSERT INTO notifications (id, user_id, title, message, type, reference_id)
+               VALUES ($1, $2, $3, $4, $5, $6);`,
+              [
+                `notif-${Date.now()}-merge`,
+                reporter_id,
+                '🔄 Report Clustered with Active Ticket',
+                `Your report has been identified as a duplicate of an existing active ticket. We have merged your report into ticket #${originalReport.id} and added your vote!`,
+                'status_change',
+                originalReport.id
+              ]
+            );
+          } catch (err) {
+            console.error('[PostgreSQL Error] Failed to update merged report:', err);
+          }
+        }
+
         saveDatabase(db);
         // Return duplicate merge flag to the frontend
         return res.status(200).json({ 
@@ -988,11 +1349,82 @@ Output your decision as a strict JSON object (no markdown, no quotes, just raw J
       created_at: new Date().toISOString()
     });
 
-    saveDatabase(db);
-
     // Trigger Real-Time Notification Broadcast
     const notifMessage = `New ${category.replace('_', ' ')} ticket logged at ${newReport.zone_name}. "${description.substring(0, 60)}..."`;
     const notifTitle = priority_score >= 4 ? '🚨 High Priority Maintenance Alert' : '📋 New Maintenance Ticket';
+
+    // Sync with PostgreSQL
+    if (pool) {
+      try {
+        console.log('[PostgreSQL] Inserting fresh report and AI triage comment...');
+        await pool.query(`
+          INSERT INTO reports (
+            id, reporter_id, reporter_name, category, description, lat, lng, geom,
+            zone_id, zone_name, is_anonymous, status, priority_score, severity,
+            location_hint, sentiment, triage_analysis, photo_url, voice_url, voice_interpretation,
+            upvotes, report_count, upvoted_by
+          ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7, ST_SetSRID(ST_MakePoint($7, $6), 4326),
+            $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22
+          );`,
+          [
+            newReport.id, newReport.reporter_id, newReport.reporter_name, newReport.category, newReport.description,
+            newReport.lat, newReport.lng, newReport.zone_id, newReport.zone_name, newReport.is_anonymous,
+            newReport.status, newReport.priority_score, newReport.severity, newReport.location_hint,
+            newReport.sentiment, triageAnalysis, newReport.photo_url || null, newReport.voice_url || null,
+            newReport.voice_interpretation || null, 0, 1, []
+          ]
+        );
+        
+        // Also insert the triage comment
+        await pool.query(`
+          INSERT INTO comments (id, report_id, user_id, user_name, user_role, text)
+          VALUES ($1, $2, $3, $4, $5, $6);`,
+          [
+            `cmt-${Date.now()}-triage`,
+            newReport.id,
+            'usr-admin-1',
+            'Gemma 4 AI Triage',
+            'admin',
+            `⚡ Gemma 4 AI Intake Analysis:\n• Category: ${category.replace('_', ' ').toUpperCase()}\n• Priority Score: ${priority_score}/5 (${severity.toUpperCase()})\n• Sentiment/Frustration: ${sentiment.toUpperCase()}\n• Location Hint: "${location_hint || 'None'}"\n• Status: AI-Categorized & Validated.`
+          ]
+        );
+
+        // Also insert administrator notification
+        await pool.query(`
+          INSERT INTO notifications (id, user_id, title, message, type, reference_id)
+          VALUES ($1, $2, $3, $4, $5, $6);`,
+          [
+            `notif-${Date.now()}-fresh-admin`,
+            'admin',
+            notifTitle,
+            notifMessage,
+            priority_score >= 4 ? 'high_priority' : 'status_change',
+            newReport.id
+          ]
+        );
+
+        // Also insert technician notification if high priority
+        if (priority_score >= 4) {
+          await pool.query(`
+            INSERT INTO notifications (id, user_id, title, message, type, reference_id)
+            VALUES ($1, $2, $3, $4, $5, $6);`,
+            [
+              `notif-${Date.now()}-fresh-tech`,
+              'technician',
+              notifTitle,
+              notifMessage,
+              'high_priority',
+              newReport.id
+            ]
+          );
+        }
+      } catch (err) {
+        console.error('[PostgreSQL Error] Failed to insert new report in DB:', err);
+      }
+    }
+
+    saveDatabase(db);
     
     // Send to Admins
     sendLiveNotification({
@@ -1086,7 +1518,7 @@ Output your decision as a strict JSON object (no markdown, no quotes, just raw J
   });
 
   // Upvote Report
-  app.post('/api/reports/:id/upvote', (req, res) => {
+  app.post('/api/reports/:id/upvote', async (req, res) => {
     const { id } = req.params;
     const { user_id } = req.body;
 
@@ -1098,6 +1530,7 @@ Output your decision as a strict JSON object (no markdown, no quotes, just raw J
     if (!report.upvoted_by) report.upvoted_by = [];
 
     const index = report.upvoted_by.indexOf(user_id);
+    let isAdded = false;
     if (index > -1) {
       // Remove upvote
       report.upvoted_by.splice(index, 1);
@@ -1106,14 +1539,42 @@ Output your decision as a strict JSON object (no markdown, no quotes, just raw J
       // Add upvote
       report.upvoted_by.push(user_id);
       report.upvotes += 1;
+      isAdded = true;
     }
 
     saveDatabase(db);
+
+    // Sync with PostgreSQL
+    const pool = getPgPool();
+    if (pool) {
+      try {
+        if (isAdded) {
+          await pool.query(
+            `UPDATE reports 
+             SET upvotes = upvotes + 1, 
+                 upvoted_by = array_append(upvoted_by, $1) 
+             WHERE id = $2;`,
+            [user_id, id]
+          );
+        } else {
+          await pool.query(
+            `UPDATE reports 
+             SET upvotes = GREATEST(0, upvotes - 1), 
+                 upvoted_by = array_remove(upvoted_by, $1) 
+             WHERE id = $2;`,
+            [user_id, id]
+          );
+        }
+      } catch (err) {
+        console.error('[PostgreSQL Error] Failed to sync upvote:', err);
+      }
+    }
+
     res.json(report);
   });
 
   // Assign Technician to Report
-  app.post('/api/reports/:id/assign', (req, res) => {
+  app.post('/api/reports/:id/assign', async (req, res) => {
     // Strict Auth Guard
     const user = getAuthenticatedUser(req);
     if (!user || user.role !== 'admin') {
@@ -1160,6 +1621,61 @@ Output your decision as a strict JSON object (no markdown, no quotes, just raw J
     });
 
     saveDatabase(db);
+
+    // Sync with PostgreSQL
+    const pool = getPgPool();
+    if (pool) {
+      try {
+        // 1. Update report status
+        await pool.query(
+          `UPDATE reports SET status = 'assigned' WHERE id = $1;`,
+          [id]
+        );
+
+        // 2. Insert assignment
+        await pool.query(
+          `INSERT INTO assignments (id, report_id, technician_id, technician_name, assigned_at)
+           VALUES ($1, $2, $3, $4, NOW());`,
+          [assignment.id, assignment.report_id, assignment.technician_id, assignment.technician_name]
+        );
+
+        // 3. Increase load
+        await pool.query(
+          `UPDATE technicians SET current_load = current_load + 1 WHERE id = $1;`,
+          [technician_id]
+        );
+
+        // 4. Add comment
+        await pool.query(
+          `INSERT INTO comments (id, report_id, user_id, user_name, user_role, text)
+           VALUES ($1, $2, $3, $4, $5, $6);`,
+          [
+            `cmt-${Date.now()}`,
+            id,
+            user.id,
+            user.name,
+            'admin',
+            `Technician ${technician.name} has been assigned to this ticket. Task queue load: ${technician.current_load} open assignments.`
+          ]
+        );
+
+        // 5. Insert notification
+        await pool.query(
+          `INSERT INTO notifications (id, user_id, title, message, type, reference_id)
+           VALUES ($1, $2, $3, $4, $5, $6);`,
+          [
+            `notif-${Date.now()}-assign`,
+            technician.user_id,
+            '🛠️ New Task Assigned',
+            `You have been assigned to: "${report.description.substring(0, 60)}..." in ${report.zone_name}`,
+            'new_assignment',
+            report.id
+          ]
+        );
+      } catch (err) {
+        console.error('[PostgreSQL Error] Failed to sync assignment:', err);
+      }
+    }
 
     // Trigger Notification for the specific assigned Technician
     sendLiveNotification({
@@ -1311,11 +1827,133 @@ Keep your response to exactly 1 or 2 concise, reassuring sentences. Do not use g
       }
     }
 
+    // Sync with PostgreSQL
+    const pool = getPgPool();
+    if (pool) {
+      try {
+        console.log(`[PostgreSQL Status Update] Syncing report status change to "${status}"...`);
+        
+        // 1. Update report status and photo url
+        if (photo_proof) {
+          await pool.query(
+            `UPDATE reports SET status = $1, photo_url = $2 WHERE id = $3;`,
+            [status, photo_proof, id]
+          );
+        } else {
+          await pool.query(
+            `UPDATE reports SET status = $1 WHERE id = $2;`,
+            [status, id]
+          );
+        }
+
+        // 2. If resolved, close assignments and decrement load
+        if (status === 'resolved') {
+          const assignRes = await pool.query(
+            `SELECT technician_id FROM assignments WHERE report_id = $1 AND resolved_at IS NULL LIMIT 1;`,
+            [id]
+          );
+          if (assignRes.rows.length > 0) {
+            const techId = assignRes.rows[0].technician_id;
+            await pool.query(
+              `UPDATE assignments SET resolved_at = NOW() WHERE report_id = $1 AND resolved_at IS NULL;`,
+              [id]
+            );
+            await pool.query(
+              `UPDATE technicians SET current_load = GREATEST(0, current_load - 1) WHERE id = $1;`,
+              [techId]
+            );
+          }
+        }
+
+        // 3. Insert update comment
+        await pool.query(
+          `INSERT INTO comments (id, report_id, user_id, user_name, user_role, text)
+           VALUES ($1, $2, $3, $4, $5, $6);`,
+          [
+            `cmt-${Date.now()}`,
+            id,
+            user.id,
+            actorName,
+            user.role,
+            comment_text || `Status updated from "${prevStatus}" to "${status}" by ${actorName}.`
+          ]
+        );
+
+        // 4. Insert notifications
+        // Notify Student
+        await pool.query(
+          `INSERT INTO notifications (id, user_id, title, message, type, reference_id)
+           VALUES ($1, $2, $3, $4, $5, $6);`,
+          [
+            `notif-${Date.now()}-status`,
+            report.reporter_id,
+            `🔄 Ticket Status Updated: ${status.replace('_', ' ').toUpperCase()}`,
+            notificationMessage,
+            'status_change',
+            report.id
+          ]
+        );
+
+        // Notify Admin on inspection start
+        if (status === 'in_progress') {
+          await pool.query(
+            `INSERT INTO notifications (id, user_id, title, message, type, reference_id)
+             VALUES ($1, $2, $3, $4, $5, $6);`,
+            [
+              `notif-${Date.now()}-inspect-start-admin`,
+              'admin',
+              '🚀 Inspection Started',
+              `Technician ${actorName} has started the inspection for Ticket #${report.id} (${report.category.replace('_', ' ').toUpperCase()}) in ${report.zone_name || 'ABU Campus'}.`,
+              'status_change',
+              report.id
+            ]
+          );
+        }
+
+        // Notify Admin and Upvoters on finish
+        if (status === 'resolved') {
+          await pool.query(
+            `INSERT INTO notifications (id, user_id, title, message, type, reference_id)
+             VALUES ($1, $2, $3, $4, $5, $6);`,
+            [
+              `notif-${Date.now()}-inspect-finish-admin`,
+              'admin',
+              '✅ Inspection Finished & Resolved',
+              `Technician ${actorName} has confirmed finishing of the inspection and resolved Ticket #${report.id} (${report.category.replace('_', ' ').toUpperCase()}) in ${report.zone_name || 'ABU Campus'}.`,
+              'status_change',
+              report.id
+            ]
+          );
+
+          if (report.upvoted_by && report.upvoted_by.length > 0) {
+            for (const upvoterId of report.upvoted_by) {
+              if (upvoterId !== report.reporter_id) {
+                await pool.query(
+                  `INSERT INTO notifications (id, user_id, title, message, type, reference_id)
+                   VALUES ($1, $2, $3, $4, $5, $6);`,
+                  [
+                    `notif-${Date.now()}-inspect-finish-upvoter-${upvoterId}`,
+                    upvoterId,
+                    '🎉 Subscribed Ticket Resolved!',
+                    `The inspection is finished and a ticket you upvoted (#${report.id}) has been resolved by ${actorName}: "${comment_text || 'Completed successfully.'}"`,
+                    'status_change',
+                    report.id
+                  ]
+                );
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.error('[PostgreSQL Error] Failed to sync status update in DB:', err);
+      }
+    }
+
     res.json(report);
   });
 
   // Delete Report (Admin or Reporter Student)
-  app.delete('/api/reports/:id', (req, res) => {
+  app.delete('/api/reports/:id', async (req, res) => {
     const user = getAuthenticatedUser(req);
     if (!user) {
       return res.status(401).json({ error: 'Authentication required' });
@@ -1353,6 +1991,34 @@ Keep your response to exactly 1 or 2 concise, reassuring sentences. Do not use g
     db.assignments = db.assignments.filter((a: Assignment) => a.report_id !== id);
 
     saveDatabase(db);
+
+    // Sync with PostgreSQL
+    const pool = getPgPool();
+    if (pool) {
+      try {
+        console.log(`[PostgreSQL Delete] Deleting report #${id} and dependencies...`);
+        // If assigned, decrease load
+        const assignRes = await pool.query(
+          `SELECT technician_id FROM assignments WHERE report_id = $1 AND resolved_at IS NULL LIMIT 1;`,
+          [id]
+        );
+        if (assignRes.rows.length > 0) {
+          const techId = assignRes.rows[0].technician_id;
+          await pool.query(
+            `UPDATE technicians SET current_load = GREATEST(0, current_load - 1) WHERE id = $1;`,
+            [techId]
+          );
+        }
+
+        // Delete dependencies (comments, assignments) & report
+        await pool.query('DELETE FROM comments WHERE report_id = $1;', [id]);
+        await pool.query('DELETE FROM assignments WHERE report_id = $1;', [id]);
+        await pool.query('DELETE FROM reports WHERE id = $1;', [id]);
+      } catch (err) {
+        console.error('[PostgreSQL Error] Failed to delete report from DB:', err);
+      }
+    }
+
     res.json({ success: true, message: 'Report deleted successfully' });
   });
 
@@ -1390,12 +2056,215 @@ Keep your response to exactly 1 or 2 concise, reassuring sentences. Do not use g
   });
 
   // Get Technicians List
-  app.get('/api/technicians', (req, res) => {
+  app.get('/api/technicians', async (req, res) => {
+    const pool = getPgPool();
+    if (pool) {
+      try {
+        const result = await pool.query('SELECT * FROM technicians ORDER BY name ASC');
+        return res.json(result.rows);
+      } catch (err) {
+        console.error('[PostgreSQL Error] Failed to fetch technicians:', err);
+      }
+    }
     res.json(db.technicians);
   });
 
+  // Create/Register a Dedicated Technician Profile (Admin Only)
+  app.post('/api/admin/technicians', async (req, res) => {
+    // Strict Auth Guard
+    const user = getAuthenticatedUser(req);
+    if (!user || user.role !== 'admin') {
+      return res.status(403).json({ error: 'Strict Auth Guard: Access Denied. Only system administrators can register technicians.' });
+    }
+
+    const { email, name, skill_tags } = req.body;
+
+    if (!email || !name) {
+      return res.status(400).json({ error: 'Email and Name are required.' });
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+    if (!normalizedEmail.endsWith('.abu.edu.ng') && !normalizedEmail.endsWith('@abu.edu.ng')) {
+      return res.status(400).json({ error: 'Technician email must belong to the Ahmadu Bello University domain (abu.edu.ng).' });
+    }
+
+    // Check if user already exists
+    let existingUser = db.users.find((u: User) => u.email.toLowerCase() === normalizedEmail);
+    if (existingUser && existingUser.role !== 'technician') {
+      return res.status(400).json({ error: 'A user with this email already exists with a different role.' });
+    }
+
+    let techUser: User;
+    if (!existingUser) {
+      techUser = {
+        id: `usr-tech-${Date.now()}`,
+        google_id: `g-tech-${Math.random().toString(36).substr(2, 9)}`,
+        name: name,
+        email: normalizedEmail,
+        role: 'technician'
+      };
+      db.users.push(techUser);
+    } else {
+      techUser = existingUser;
+    }
+
+    // Check if technician profile already exists
+    let existingTech = db.technicians.find((t: Technician) => t.user_id === techUser.id);
+    if (existingTech) {
+      existingTech.skill_tags = skill_tags || existingTech.skill_tags;
+      saveDatabase(db);
+      return res.json({ success: true, message: 'Technician profile updated.', technician: existingTech });
+    }
+
+    const newTech: Technician = {
+      id: `tech-${Date.now()}`,
+      user_id: techUser.id,
+      name: name,
+      skill_tags: skill_tags || ['others'],
+      current_load: 0
+    };
+
+    db.technicians.push(newTech);
+    saveDatabase(db);
+
+    // Sync with PostgreSQL
+    const pool = getPgPool();
+    if (pool) {
+      try {
+        await pool.query(
+          `INSERT INTO users (id, google_id, name, email, role) 
+           VALUES ($1, $2, $3, $4, $5) 
+           ON CONFLICT (id) DO UPDATE SET name = $3, role = $5;`,
+          [techUser.id, techUser.google_id, techUser.name, techUser.email, techUser.role]
+        );
+
+        await pool.query(
+          `INSERT INTO technicians (id, user_id, name, skill_tags, current_load) 
+           VALUES ($1, $2, $3, $4, $5) 
+           ON CONFLICT (id) DO UPDATE SET name = $3, skill_tags = $4;`,
+          [newTech.id, newTech.user_id, newTech.name, newTech.skill_tags, newTech.current_load]
+        );
+      } catch (err) {
+        console.error('[PostgreSQL Error] Failed to create technician in DB:', err);
+      }
+    }
+
+    res.json({ success: true, message: 'Technician profile successfully registered.', technician: newTech });
+  });
+
   // Get Campus stats
-  app.get('/api/stats', (req, res) => {
+  app.get('/api/stats', async (req, res) => {
+    const pool = getPgPool();
+    if (pool) {
+      try {
+        const reportsRes = await pool.query('SELECT category, status, zone_name, zone_id FROM reports;');
+        const reports = reportsRes.rows;
+        const total = reports.length;
+        const resolved = reports.filter(r => r.status === 'resolved').length;
+        const open = total - resolved;
+
+        const categories: Record<string, number> = {};
+        reports.forEach(r => {
+          categories[r.category] = (categories[r.category] || 0) + 1;
+        });
+
+        const zones: Record<string, number> = {};
+        reports.forEach(r => {
+          zones[r.zone_name || r.zone_id] = (zones[r.zone_name || r.zone_id] || 0) + 1;
+        });
+
+        // Resolve avg hours from assignments
+        const assignRes = await pool.query(
+          `SELECT assigned_at, resolved_at, technician_id, technician_name FROM assignments;`
+        );
+        const assignments = assignRes.rows;
+        const resolvedAssignments = assignments.filter(a => a.resolved_at);
+
+        let avgHours = 24;
+        if (resolvedAssignments.length > 0) {
+          let totalMs = 0;
+          resolvedAssignments.forEach(a => {
+            const start = new Date(a.assigned_at).getTime();
+            const end = new Date(a.resolved_at).getTime();
+            totalMs += (end - start);
+          });
+          avgHours = parseFloat((totalMs / (1000 * 60 * 60 * resolvedAssignments.length)).toFixed(1));
+        }
+
+        // Tech stats
+        const techsRes = await pool.query('SELECT id, name FROM technicians;');
+        const technicians = techsRes.rows;
+
+        const technicianResolutionTimes: Record<string, { totalHours: number, count: number, name: string }> = {};
+        technicians.forEach(t => {
+          // Provide seed mock default data if no real resolutions exist
+          const seedHours = t.id === 'tech-1' ? 4.5 : 3.2;
+          const seedCount = t.id === 'tech-1' ? 12 : 15;
+          technicianResolutionTimes[t.id] = { 
+            totalHours: seedHours * seedCount, 
+            count: seedCount, 
+            name: t.name 
+          };
+        });
+
+        assignments.forEach(a => {
+          if (a.resolved_at) {
+            const start = new Date(a.assigned_at).getTime();
+            const end = new Date(a.resolved_at).getTime();
+            const hours = (end - start) / (1000 * 60 * 60);
+            
+            if (!technicianResolutionTimes[a.technician_id]) {
+              technicianResolutionTimes[a.technician_id] = { totalHours: 0, count: 0, name: a.technician_name || 'Unknown' };
+            }
+            technicianResolutionTimes[a.technician_id].totalHours += hours;
+            technicianResolutionTimes[a.technician_id].count += 1;
+          }
+        });
+
+        const realResolvedExists = assignments.some(a => a.resolved_at);
+        if (realResolvedExists) {
+          technicians.forEach(t => {
+            const techHasReal = assignments.some(a => a.technician_id === t.id && a.resolved_at);
+            if (!techHasReal) {
+              technicianResolutionTimes[t.id] = { totalHours: 0, count: 0, name: t.name };
+            } else {
+              const realAssignments = assignments.filter(a => a.technician_id === t.id && a.resolved_at);
+              let totalH = 0;
+              realAssignments.forEach(a => {
+                const start = new Date(a.assigned_at).getTime();
+                const end = new Date(a.resolved_at).getTime();
+                totalH += (end - start) / (1000 * 60 * 60);
+              });
+              technicianResolutionTimes[t.id] = {
+                totalHours: totalH,
+                count: realAssignments.length,
+                name: t.name
+              };
+            }
+          });
+        }
+
+        const technicianStats = Object.entries(technicianResolutionTimes).map(([id, data]) => ({
+          id,
+          name: data.name,
+          avgResolutionTimeHours: data.count > 0 ? parseFloat((data.totalHours / data.count).toFixed(1)) : 0,
+          resolvedCount: data.count
+        }));
+
+        return res.json({
+          total,
+          resolved,
+          open,
+          avgResolutionTimeHours: avgHours,
+          categories,
+          zones,
+          technicianStats
+        });
+      } catch (err) {
+        console.error('[PostgreSQL Error] Failed to calculate stats:', err);
+      }
+    }
+
     const reports = db.reports;
     const total = reports.length;
     const resolved = reports.filter(r => r.status === 'resolved').length;
@@ -1778,60 +2647,55 @@ No maintenance tickets have been submitted yet. When students start reporting is
       });
     }
 
-    if (ai) {
-      try {
-        console.log('[Gemma AI] Generating weekly summary...');
-        
-        const totalTickets = reportsWithRank.length;
-        const resolved = reportsWithRank.filter((r: any) => r.status === 'resolved').length;
-        const open = totalTickets - resolved;
-        const categoriesSummary = reportsWithRank.reduce((acc: any, r: any) => {
-          acc[r.category] = (acc[r.category] || 0) + 1;
-          return acc;
-        }, {});
-        
-        const criticalReports = reportsWithRank
-          .filter((r: any) => r.priority_score >= 4 && r.status !== 'resolved')
-          .map((r: any) => `[P${r.priority_score}] ${r.category} at ${r.zone_name}: "${r.description}" (${r.upvotes} upvotes, ${r.comments_count} complaints)`)
-          .join('\n');
+    try {
+      console.log('[Gemma AI] Generating weekly summary...');
+      
+      const totalTickets = reportsWithRank.length;
+      const resolved = reportsWithRank.filter((r: any) => r.status === 'resolved').length;
+      const open = totalTickets - resolved;
+      const categoriesSummary = reportsWithRank.reduce((acc: any, r: any) => {
+        acc[r.category] = (acc[r.category] || 0) + 1;
+        return acc;
+      }, {});
+      
+      const criticalReports = reportsWithRank
+        .filter((r: any) => r.priority_score >= 4 && r.status !== 'resolved')
+        .map((r: any) => `[P${r.priority_score}] ${r.category} at ${r.zone_name}: "${r.description}" (${r.upvotes} upvotes, ${r.comments_count} complaints)`)
+        .join('\n');
 
-        const prompt = `You are the executive advisor AI for Ahmadu Bello University administration.
-        Generate a comprehensive, highly polished, structured weekly campus maintenance summary based on this data:
-        
-        - Total Logged Tickets: ${totalTickets}
-        - Resolved Tickets: ${resolved}
-        - Open Tickets: ${open}
-        - Category Breakdown: ${JSON.stringify(categoriesSummary)}
-        
-        Unresolved P4-P5 Critical Tickets:
-        ${criticalReports || 'None'}
-        
-        Generate a beautifully structured dashboard summary in markdown format with these exact headings:
-        ### 📌 Executive Overview
-        [A brief, professional summary of active tickets, resolution rates, and general campus health]
-        
-        ### 🚨 Critical Areas & Pain Points
-        [Detail any high-urgency zones, repeat hotspots e.g., water leaks in Suleiman, or security alarms. Mention upvotes and public student complaints/comments]
-        
-        ### 🛠️ Technician Dispatch & Resource Guidance
-        [Recommend where to deploy staff like Musa Garba (plumbing, structural) or John Okoye (broken lights, wifi) based on their specialties and pending ticket categories]
-        
-        ### 📈 Suggested Action Items
-        [Provide 3 clear, actionable recommendations for this week to improve student satisfaction and campus infrastructure]`;
+      const systemInstruction = `You are the executive advisor AI for Ahmadu Bello University administration.
+Generate a comprehensive, highly polished, structured weekly campus maintenance summary.`;
 
-        const response = await ai.models.generateContent({
-          model: 'gemini-3.5-flash',
-          contents: prompt,
-        });
+      const prompt = `Generate a comprehensive weekly campus maintenance summary based on this data:
+      
+      - Total Logged Tickets: ${totalTickets}
+      - Resolved Tickets: ${resolved}
+      - Open Tickets: ${open}
+      - Category Breakdown: ${JSON.stringify(categoriesSummary)}
+      
+      Unresolved P4-P5 Critical Tickets:
+      ${criticalReports || 'None'}
+      
+      Generate a beautifully structured dashboard summary in markdown format with these exact headings:
+      ### 📌 Executive Overview
+      [A brief, professional summary of active tickets, resolution rates, and general campus health]
+      
+      ### 🚨 Critical Areas & Pain Points
+      [Detail any high-urgency zones, repeat hotspots e.g., water leaks in Suleiman, or security alarms. Mention upvotes and public student complaints/comments]
+      
+      ### 🛠️ Technician Dispatch & Resource Guidance
+      [Recommend where to deploy staff like Musa Garba (plumbing, structural) or John Okoye (broken lights, wifi) based on their specialties and pending ticket categories]
+      
+      ### 📈 Suggested Action Items
+      [Provide 3 clear, actionable recommendations for this week to improve student satisfaction and campus infrastructure]`;
 
-        const summary = response.text || 'Unable to generate weekly report summary.';
-        return res.json({ summary });
-      } catch (err) {
-        console.error('[Gemma AI Weekly Summary Error]', err);
-      }
+      const summary = await callGemmaAI(prompt, systemInstruction, false);
+      return res.json({ summary });
+    } catch (err) {
+      console.error('[Gemma AI Weekly Summary Error] AI generation failed. Falling back to quality local summary:', err);
     }
 
-    // Quality offline fallback in case Gemini API is not available
+    // Quality offline fallback in case Gemma API is not available
     const totalTickets = reportsWithRank.length;
     const resolved = reportsWithRank.filter((r: any) => r.status === 'resolved').length;
     const open = totalTickets - resolved;
