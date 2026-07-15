@@ -249,26 +249,47 @@ interface Report {
   voice_interpretation?: string;
 }
 
-// Global Core AI Engine caller for Gemma 4 (with OpenAI & Ollama endpoint support and Gemini fallback)
+// Global Core AI Engine caller for Gemma 4 (with OpenAI, Hugging Face, & Ollama endpoint support and Gemini fallback)
 async function callGemmaAI(
   prompt: string, 
   systemInstruction?: string, 
   jsonMode: boolean = false,
   imagePayload?: { mimeType: string, data: string }
 ): Promise<string> {
-  const gemmaModelString = process.env.GEMMA_MODEL || 'gemma-4';
+  const gemmaModelString = process.env.GEMMA_MODEL || 'google/gemma-2-27b-it';
 
-  // 1. Try process.env.GEMMA_API_URL first (self-hosted Gemma 4 instance)
+  // 1. Try process.env.GEMMA_API_URL first (self-hosted Gemma 4 or Hugging Face Inference API instance)
   if (process.env.GEMMA_API_URL) {
     try {
-      console.log(`[Gemma AI Client] Direct routing request to self-hosted Gemma 4 at: ${process.env.GEMMA_API_URL}`);
+      console.log(`[Gemma AI Client] Direct routing request to Gemma API at: ${process.env.GEMMA_API_URL}`);
       const gemmaUrl = process.env.GEMMA_API_URL.trim();
       let endpoint = gemmaUrl;
       let body: any = {};
       let headers: any = { 'Content-Type': 'application/json' };
 
-      if (gemmaUrl.includes('/v1')) {
-        // OpenAI Chat completions format
+      // Optional Hugging Face Token support
+      const hfToken = process.env.HF_API_TOKEN || process.env.HUGGINGFACE_API_KEY;
+      if (hfToken) {
+        headers['Authorization'] = `Bearer ${hfToken}`;
+      }
+
+      if (gemmaUrl.includes('huggingface.co') && !gemmaUrl.includes('/v1') && !gemmaUrl.includes('/chat/completions')) {
+        // Standard Hugging Face serverless text generation format
+        endpoint = gemmaUrl;
+        const combinedPrompt = systemInstruction 
+          ? `<|system|>\n${systemInstruction}\n<|user|>\n${prompt}\n<|assistant|>\n` 
+          : prompt;
+        
+        body = {
+          inputs: combinedPrompt,
+          parameters: {
+            temperature: 0.1,
+            max_new_tokens: 1024,
+            return_full_text: false
+          }
+        };
+      } else if (gemmaUrl.includes('/v1') || gemmaUrl.includes('huggingface.co') && (gemmaUrl.includes('/chat/completions') || gemmaUrl.includes('/v1'))) {
+        // OpenAI / Hugging Face Chat completions format
         endpoint = gemmaUrl.endsWith('/') ? `${gemmaUrl}chat/completions` : `${gemmaUrl}/chat/completions`;
         const messages: any[] = [];
         if (systemInstruction) {
@@ -323,6 +344,10 @@ async function callGemmaAI(
         let result = '';
         if (data.choices && data.choices[0] && data.choices[0].message) {
           result = data.choices[0].message.content;
+        } else if (Array.isArray(data) && data[0] && data[0].generated_text) {
+          result = data[0].generated_text;
+        } else if (data.generated_text) {
+          result = data.generated_text;
         } else if (data.response) {
           result = data.response; // Ollama format
         } else if (data.text) {
@@ -335,10 +360,11 @@ async function callGemmaAI(
         console.log('[Gemma AI Engine Response Success]:', result.substring(0, 300));
         return result;
       } else {
-        console.warn(`[Gemma AI Engine Warn] Non-200 response code returned: ${response.status}`);
+        const errorText = await response.text().catch(() => '');
+        console.warn(`[Gemma AI Engine Warn] Non-200 response code returned: ${response.status}. Error: ${errorText}`);
       }
     } catch (err) {
-      console.error('[Gemma AI Engine Error] Connection to local Gemma 4 failed:', err);
+      console.error('[Gemma AI Engine Error] Connection to Gemma 4 API failed:', err);
     }
   }
 
