@@ -342,43 +342,7 @@ async function callGemmaAI(
     }
   }
 
-  // 2. Fallback proxy: Routing through Gemini API to simulate/proxy Gemma
-  if (ai) {
-    try {
-      console.log(`[Gemma Fallback] Proxying via Google GenAI SDK using model: ${gemmaModelString}...`);
-      
-      let contents: any;
-      if (imagePayload) {
-        const imagePart = {
-          inlineData: {
-            mimeType: imagePayload.mimeType,
-            data: imagePayload.data
-          }
-        };
-        const textPart = {
-          text: prompt
-        };
-        contents = { parts: [imagePart, textPart] };
-      } else {
-        contents = prompt;
-      }
-
-      const response = await ai.models.generateContent({
-        model: gemmaModelString,
-        contents: contents,
-        config: {
-          systemInstruction: systemInstruction,
-          temperature: 0.2,
-          responseMimeType: jsonMode ? 'application/json' : undefined
-        }
-      });
-      return response.text || '';
-    } catch (err) {
-      console.error('[Gemma Fallback Error] Google GenAI SDK routing failed:', err);
-    }
-  }
-
-  // 3. Fallback Trigger: Throw error to fall back to fully local offline-first rule-base
+  // Gemma Fallback is disabled completely as per configuration.
   throw new Error('All AI services currently unreachable.');
 }
 
@@ -903,33 +867,8 @@ async function startServer() {
       }
     }
 
-    // 2. Fallback Proxy: If Gemma cannot handle raw audio natively, we attempt Gemma-based transcription fallback via SDK
-    if (ai) {
-      try {
-        console.log(`[Gemma Fallback] Interpreting ${mimeType} audio using Google GenAI SDK with model ${gemmaModelString}...`);
-        const response = await ai.models.generateContent({
-          model: gemmaModelString,
-          contents: [
-            {
-              inlineData: {
-                data: base64Data,
-                mimeType: mimeType
-              }
-            },
-            promptText
-          ]
-        });
-        const result = response.text || '';
-        if (result.trim()) {
-          return result.trim();
-        }
-      } catch (err) {
-        console.error('[Gemma Fallback Error] Gemma fallback voice transcription failed:', err);
-      }
-    }
-
-    // 3. Clear non-fabricated fallback instead of generating fake text
-    console.warn('[Voice Interpreter] Both Gemma and Gemini fallback failed. Returning clean, non-fabricated message.');
+    // Gemma Fallback is disabled completely as per configuration.
+    console.warn('[Voice Interpreter] Gemma service unavailable. Returning clean, non-fabricated message.');
     return "Voice transcription unavailable, please review the attached recording.";
   }
 
