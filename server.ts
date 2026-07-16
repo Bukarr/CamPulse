@@ -196,7 +196,7 @@ async function initializePostgres() {
   }
 }
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 const DB_FILE = path.join(process.cwd(), 'db.json');
 
 // Types for DB
