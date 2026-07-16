@@ -64,7 +64,8 @@ export default function GemmaAIWidget({ currentUser }: GemmaAIWidgetProps) {
         body: JSON.stringify({ 
           message: textToSend,
           userRole: currentUser?.role,
-          userId: currentUser?.id
+          userId: currentUser?.id,
+          systemPrompt: `You are strictly restricted to act as a simple, helpful FAQ and navigation guide for CamPulse features. You must never provide any external opinions, discuss external politics, give opinions on non-maintenance tasks, or answer generic topics unrelated to Ahmadu Bello University campus maintenance or CamPulse application features.`
         })
       });
       const data = await res.json();

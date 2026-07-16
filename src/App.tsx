@@ -136,6 +136,16 @@ export default function App() {
         const notif = JSON.parse(event.data);
         console.log('[SSE] Received live real-time notification:', notif);
 
+        // Filter out 'dispatched' status notifications or non-matching direct target IDs for technician dashboard
+        if (currentUser?.role === 'technician') {
+          const titleLower = (notif.title || '').toLowerCase();
+          const msgLower = (notif.message || '').toLowerCase();
+          if (titleLower.includes('dispatched') || msgLower.includes('dispatched') || (notif.user_id && notif.user_id !== currentUser.id)) {
+            console.log('[SSE] Ignored student dispatched notification for technician:', notif.id);
+            return;
+          }
+        }
+
         // Add to state list
         setNotifications(prev => [notif, ...prev]);
 
@@ -509,14 +519,32 @@ export default function App() {
 
             {/* Notification List */}
             <div className="flex-1 overflow-y-auto p-4 space-y-2.5">
-              {notifications.length === 0 ? (
-                <div className="text-center py-12 space-y-2">
-                  <div className="text-3xl">🔔</div>
-                  <div className="text-xs font-bold text-slate-400">All caught up!</div>
-                  <div className="text-[10px] text-slate-400">No new maintenance updates to report.</div>
-                </div>
-              ) : (
-                notifications.map((notif) => (
+              {(() => {
+                const filteredList = notifications.filter(notif => {
+                  if (currentUser?.role === 'technician') {
+                    const titleLower = (notif.title || '').toLowerCase();
+                    const msgLower = (notif.message || '').toLowerCase();
+                    if (titleLower.includes('dispatched') || msgLower.includes('dispatched')) {
+                      return false;
+                    }
+                    if (notif.user_id && notif.user_id !== currentUser.id) {
+                      return false;
+                    }
+                  }
+                  return true;
+                });
+
+                if (filteredList.length === 0) {
+                  return (
+                    <div className="text-center py-12 space-y-2">
+                      <div className="text-3xl">🔔</div>
+                      <div className="text-xs font-bold text-slate-400">All caught up!</div>
+                      <div className="text-[10px] text-slate-400">No new maintenance updates to report.</div>
+                    </div>
+                  );
+                }
+
+                return filteredList.map((notif) => (
                   <div 
                     key={notif.id}
                     onClick={() => handleMarkAsRead(notif.id)}
@@ -668,8 +696,8 @@ export default function App() {
                       )}
                     </div>
                   </div>
-                ))
-              )}
+                ));
+              })()}
             </div>
           </div>
         </div>

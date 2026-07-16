@@ -11,6 +11,7 @@ interface TechnicianViewProps {
 export default function TechnicianView({ technicianUserId, reports, onUpdateStatus }: TechnicianViewProps) {
   const [assignedReports, setAssignedReports] = useState<Report[]>([]);
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
+  const [activeDetailReport, setActiveDetailReport] = useState<Report | null>(null);
   const [photoProof, setPhotoProof] = useState<string | undefined>(undefined);
   const [commentText, setCommentText] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -191,25 +192,35 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
                 </div>
 
                 {/* Action trigger states */}
-                <div className="flex gap-2 pt-1 border-t border-slate-100">
-                  {report.status === 'assigned' && (
-                    <button
-                      disabled={isSubmitting}
-                      onClick={() => handleUpdate(report.id, 'in_progress')}
-                      className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-100 disabled:text-slate-400 text-white font-bold text-xs py-2.5 rounded-xl transition-colors cursor-pointer text-center"
-                    >
-                      🚀 Inspection Started
-                    </button>
-                  )}
-                  {report.status === 'in_progress' && (
-                    <button
-                      disabled={isSubmitting}
-                      onClick={() => handleUpdate(report.id, 'resolved')}
-                      className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-100 disabled:text-slate-400 text-white font-bold text-xs py-2.5 rounded-xl flex items-center justify-center gap-1 transition-colors cursor-pointer text-center"
-                    >
-                      <CheckCircle size={13} /> Task Completed
-                    </button>
-                  )}
+                <div className="space-y-2 pt-1 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setActiveDetailReport(report)}
+                    className="w-full text-center text-xs bg-slate-50 hover:bg-slate-100 border border-slate-200/80 hover:border-slate-300 text-slate-700 font-bold py-2 px-4 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    📖 Open Full Task Details
+                  </button>
+
+                  <div className="flex gap-2">
+                    {report.status === 'assigned' && (
+                      <button
+                        disabled={isSubmitting}
+                        onClick={() => handleUpdate(report.id, 'in_progress')}
+                        className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-100 disabled:text-slate-400 text-white font-bold text-xs py-2.5 rounded-xl transition-colors cursor-pointer text-center"
+                      >
+                        🚀 Inspection Started
+                      </button>
+                    )}
+                    {report.status === 'in_progress' && (
+                      <button
+                        disabled={isSubmitting}
+                        onClick={() => handleUpdate(report.id, 'resolved')}
+                        className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-100 disabled:text-slate-400 text-white font-bold text-xs py-2.5 rounded-xl flex items-center justify-center gap-1 transition-colors cursor-pointer text-center"
+                      >
+                        <CheckCircle size={13} /> Task Completed
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
@@ -303,6 +314,127 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
                 {isSubmitting ? 'Submitting resolution...' : 'Confirm Task Completed (Notifies Admin & Reporters)'}
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Task Details Modal */}
+      {activeDetailReport && (
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white border border-slate-200 w-full max-w-lg rounded-2xl shadow-2xl p-5 space-y-4 max-h-[90vh] overflow-y-auto animate-slide-up">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div>
+                <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded border uppercase ${
+                  activeDetailReport.priority_score >= 4 ? 'bg-rose-50 text-rose-600 border-rose-100' :
+                  activeDetailReport.priority_score === 3 ? 'bg-amber-50 text-amber-600 border-amber-100' :
+                  'bg-emerald-50 text-emerald-600 border-emerald-100'
+                }`}>
+                  Priority P{activeDetailReport.priority_score}
+                </span>
+                <h4 className="text-sm font-bold text-slate-800 mt-1 font-sans capitalize">
+                  {activeDetailReport.category.replace('_', ' ')} Details
+                </h4>
+                <p className="text-[9px] text-slate-400 font-bold font-mono">TICKET #{activeDetailReport.id}</p>
+              </div>
+              <button
+                onClick={() => setActiveDetailReport(null)}
+                className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-800 font-bold px-2.5 py-1.5 rounded-lg cursor-pointer transition-colors"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {/* Reporter Info */}
+              <div className="text-[11px] text-slate-500">
+                <span className="font-bold">Filed By:</span> {activeDetailReport.reporter_name || 'Anonymous Student'} 
+                {activeDetailReport.is_anonymous && <span className="ml-1 bg-slate-100 text-slate-600 px-1 rounded text-[9px] font-medium">Anonymous</span>}
+                <span className="mx-2">•</span>
+                <span className="font-bold">Date:</span> {new Date(activeDetailReport.created_at).toLocaleString()}
+              </div>
+
+              {/* Text Description */}
+              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200/60">
+                <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 font-mono">Report Description</h5>
+                <p className="text-xs text-slate-700 leading-relaxed font-medium">
+                  "{activeDetailReport.description || 'No text description provided.'}"
+                </p>
+              </div>
+
+              {/* Image Attachment */}
+              {activeDetailReport.photo_url && (
+                <div className="space-y-1">
+                  <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">Attached Image Proof</h5>
+                  <div className="rounded-xl overflow-hidden border border-slate-200 max-h-60 shadow-xs">
+                    <img src={activeDetailReport.photo_url} alt="Task proof" className="w-full h-full object-contain bg-slate-50" />
+                  </div>
+                </div>
+              )}
+
+              {/* Voice Note Attachment */}
+              {activeDetailReport.voice_url && (
+                <div className="bg-emerald-50/30 border border-emerald-100 p-3.5 rounded-xl space-y-2.5">
+                  <div className="flex items-center gap-1.5 text-xs text-emerald-800 font-bold font-sans">
+                    <span className="text-lg">🎙️</span> Voice Recording Proof
+                  </div>
+                  <audio controls src={activeDetailReport.voice_url} className="w-full h-9" />
+                  {activeDetailReport.voice_interpretation && (
+                    <div className="bg-white/80 p-2.5 rounded-lg border border-emerald-200/50 text-[11px] text-emerald-900 font-medium italic leading-relaxed">
+                      "{activeDetailReport.voice_interpretation}"
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Location info */}
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200/50 space-y-1.5 text-xs">
+                <div className="flex items-center gap-2 text-slate-600 font-semibold">
+                  <MapPin size={14} className="text-rose-500 shrink-0" />
+                  <span>{activeDetailReport.zone_name}</span>
+                </div>
+                <div className="text-[10px] text-slate-400 font-mono">
+                  Coordinates: Lat {activeDetailReport.lat.toFixed(5)}, Lng {activeDetailReport.lng.toFixed(5)}
+                </div>
+                <div className="pt-2 border-t border-slate-200/60 flex gap-2">
+                  <a
+                    href={`https://www.google.com/maps/dir/?api=1&destination=${activeDetailReport.lat},${activeDetailReport.lng}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-1.5 rounded-lg flex items-center justify-center gap-1 transition-colors text-[10px]"
+                  >
+                    <Navigation size={11} /> Open GPS Navigation Route
+                  </a>
+                </div>
+              </div>
+
+              {/* Action Buttons inside Modal */}
+              <div className="pt-3 border-t border-slate-100 flex gap-2">
+                {activeDetailReport.status === 'assigned' && (
+                  <button
+                    disabled={isSubmitting}
+                    onClick={async () => {
+                      await handleUpdate(activeDetailReport.id, 'in_progress');
+                      setActiveDetailReport(prev => prev ? { ...prev, status: 'in_progress' } : null);
+                    }}
+                    className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-100 text-white font-bold text-xs py-3 rounded-xl transition-all cursor-pointer text-center shadow-xs"
+                  >
+                    🚀 Inspection Started / Start Work
+                  </button>
+                )}
+                {activeDetailReport.status === 'in_progress' && (
+                  <button
+                    disabled={isSubmitting}
+                    onClick={() => {
+                      setSelectedReport(activeDetailReport);
+                      setActiveDetailReport(null);
+                    }}
+                    className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-100 text-white font-bold text-xs py-3 rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer text-center shadow-xs"
+                  >
+                    <CheckCircle size={14} /> Task Completed / Fix Issue
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}

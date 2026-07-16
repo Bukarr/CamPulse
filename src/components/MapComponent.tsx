@@ -267,70 +267,111 @@ export default function MapComponent({
         />
         
         {/* Render ABU campus zones as clickable styled Polygons and Markers */}
-        {abuZones.map((zone: AbuZone) => {
-          const isSelected = selectedZoneId === zone.id;
-          const center = getZoneCenter(zone);
-          
-          // Leaflet Polygon expects positions to be [lat, lng][].
-          // Since our zone.coordinates is formatted as [lng, lat][] (longitude-first),
-          // we convert them to [lat, lng][] (latitude-first) for Leaflet rendering.
-          const leafletPositions = zone.coordinates.map(([lng, lat]) => [lat, lng] as [number, number]);
-          
-          return (
-            <React.Fragment key={zone.id}>
-              <Polygon
-                positions={leafletPositions}
-                pathOptions={{
-                  color: zone.color,
-                  fillColor: zone.color,
-                  fillOpacity: isSelected ? 0.35 : 0.08,
-                  weight: isSelected ? 2.5 : 1,
-                  dashArray: isSelected ? '4, 4' : undefined,
-                }}
-                eventHandlers={{
-                  click: () => {
-                    setSelectedZoneId(zone.id);
-                    if (onMapClick) {
-                      onMapClick(center[0], center[1]);
-                    }
-                  }
-                }}
-              />
-              <Marker
-                position={center}
-                icon={createZoneIcon(zone, isSelected)}
-                eventHandlers={{
-                  click: () => {
-                    // Set the clicked zone as selected
-                    setSelectedZoneId(zone.id);
-                    // Clicking on a zone can prompt reporting in that zone
-                    if (onMapClick) {
-                      onMapClick(center[0], center[1]);
-                    }
-                  }
-                }}
-              >
-                {zoom >= 16 && (
-                  <Tooltip
-                    permanent
-                    direction="top"
-                    offset={[0, -25]}
-                    className="!bg-slate-950/90 !border-slate-800 !text-slate-200 !shadow-lg !p-1 !px-2 rounded-md font-sans text-[9px] font-semibold tracking-wide whitespace-nowrap pointer-events-none"
-                  >
-                    {zone.name}
-                  </Tooltip>
+        {(() => {
+          const coordinatesUsed = new Map<string, number>();
+          return abuZones.map((zone: AbuZone) => {
+            const isSelected = selectedZoneId === zone.id;
+            let center = getZoneCenter(zone);
+            
+            // Dynamic filtering based on map zoom to prevent clutter:
+            const category = getZoneCategory(zone);
+            let shouldShowMarker = true;
+            if (zoom < 15) {
+              // Only major landmarks on zoom-out
+              shouldShowMarker = ['faculty', 'administration', 'library'].includes(category);
+            } else if (zoom < 16) {
+              // Add hostels and gates on medium zoom
+              shouldShowMarker = ['faculty', 'hostel', 'administration', 'library', 'gate'].includes(category);
+            } else if (zoom < 17) {
+              // Hide minor departments to reduce clutter unless selected
+              shouldShowMarker = category !== 'department' || isSelected;
+            }
+            
+            if (isSelected) {
+              shouldShowMarker = true; // Always show selected POI
+            }
+
+            if (!shouldShowMarker) return null;
+
+            // Simple proximity/collision offset to prevent exact overlapping:
+            const coordKey = `${center[0].toFixed(4)},${center[1].toFixed(4)}`;
+            const count = coordinatesUsed.get(coordKey) || 0;
+            coordinatesUsed.set(coordKey, count + 1);
+
+            if (count > 0 && !isSelected) {
+              // Filter out near duplicates at lower zooms
+              if (zoom < 17) {
+                return null;
+              }
+              // At high zooms, apply spiral offset
+              const angle = (count * 2 * Math.PI) / 6;
+              const radius = 0.00012 * (1 + Math.floor(count / 6)); // Shift outwards
+              center = [
+                center[0] + radius * Math.sin(angle),
+                center[1] + radius * Math.cos(angle)
+              ];
+            }
+
+            const leafletPositions = zone.coordinates.map(([lng, lat]) => [lat, lng] as [number, number]);
+            
+            return (
+              <React.Fragment key={zone.id}>
+                {leafletPositions.length > 1 && (
+                  <Polygon
+                    positions={leafletPositions}
+                    pathOptions={{
+                      color: zone.color,
+                      fillColor: zone.color,
+                      fillOpacity: isSelected ? 0.35 : 0.08,
+                      weight: isSelected ? 2.5 : 1,
+                      dashArray: isSelected ? '4, 4' : undefined,
+                    }}
+                    eventHandlers={{
+                      click: () => {
+                        setSelectedZoneId(zone.id);
+                        if (onMapClick) {
+                          onMapClick(getZoneCenter(zone)[0], getZoneCenter(zone)[1]);
+                        }
+                      }
+                    }}
+                  />
                 )}
-                <Popup>
-                  <div className="text-xs text-slate-100 bg-slate-950 p-1.5 rounded">
-                    <h4 className="font-bold text-sm" style={{ color: zone.color }}>{zone.name}</h4>
-                    <p className="mt-1 text-slate-300">{zone.description}</p>
-                    <div className="mt-1.5 text-[10px] text-slate-400 font-mono">ID: {zone.id}</div>
-                  </div>
-                </Popup>
-              </Marker>
-            </React.Fragment>
-          );
-        })}
+                <Marker
+                  position={center}
+                  icon={createZoneIcon(zone, isSelected)}
+                  eventHandlers={{
+                    click: () => {
+                      // Set the clicked zone as selected
+                      setSelectedZoneId(zone.id);
+                      // Clicking on a zone can prompt reporting in that zone
+                      if (onMapClick) {
+                        onMapClick(getZoneCenter(zone)[0], getZoneCenter(zone)[1]);
+                      }
+                    }
+                  }}
+                >
+                  {zoom >= 16 && (
+                    <Tooltip
+                      permanent
+                      direction="top"
+                      offset={[0, -25]}
+                      className="!bg-slate-950/90 !border-slate-800 !text-slate-200 !shadow-lg !p-1 !px-2 rounded-md font-sans text-[9px] font-semibold tracking-wide whitespace-nowrap pointer-events-none"
+                    >
+                      {zone.name}
+                    </Tooltip>
+                  )}
+                  <Popup>
+                    <div className="text-xs text-slate-100 bg-slate-950 p-1.5 rounded">
+                      <h4 className="font-bold text-sm" style={{ color: zone.color }}>{zone.name}</h4>
+                      <p className="mt-1 text-slate-300">{zone.description}</p>
+                      <div className="mt-1.5 text-[10px] text-slate-400 font-mono">ID: {zone.id}</div>
+                    </div>
+                  </Popup>
+                </Marker>
+              </React.Fragment>
+            );
+          });
+        })()}
 
         {/* Selected Zone Pulsing Pinpoint indicator */}
         {selectedZoneId && (() => {
