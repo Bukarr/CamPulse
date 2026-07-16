@@ -191,7 +191,7 @@
       "lng": 7.648,
       "zone_id": "zone-other",
       "zone_name": "ABU Campus (General)",
-      "status": "submitted",
+      "status": "in_progress",
       "priority_score": 3,
       "is_anonymous": false,
       "upvotes": 0,
@@ -215,7 +215,7 @@
         "wifi_outage",
         "security"
       ],
-      "current_load": 1
+      "current_load": 3
     },
     {
       "id": "tech-2",
@@ -249,6 +249,20 @@
       "technician_id": "tech-1",
       "technician_name": "Musa Garba",
       "assigned_at": "2026-07-16T10:56:41.321Z"
+    },
+    {
+      "id": "asg-1784203333793",
+      "report_id": "rep-1784199908433",
+      "technician_id": "tech-1",
+      "technician_name": "Musa Garba",
+      "assigned_at": "2026-07-16T12:02:13.793Z"
+    },
+    {
+      "id": "asg-1784203336018",
+      "report_id": "rep-1784199908433",
+      "technician_id": "tech-1",
+      "technician_name": "Musa Garba",
+      "assigned_at": "2026-07-16T12:02:16.018Z"
     }
   ],
   "comments": [
@@ -314,6 +328,33 @@
       "user_role": "admin",
       "text": "⚡ Gemma 4 AI Intake Analysis:\n• Category: OTHERS\n• Priority Score: 3/5 (MEDIUM)\n• Sentiment/Frustration: NEUTRAL\n• Location Hint: \"Detected near ABU Campus (General)\"\n• Status: AI-Categorized & Validated.",
       "created_at": "2026-07-16T11:05:08.434Z"
+    },
+    {
+      "id": "cmt-1784203333793",
+      "report_id": "rep-1784199908433",
+      "user_id": "usr-admin-1",
+      "user_name": "Prof. Ibrahim Usman",
+      "user_role": "admin",
+      "text": "Technician Musa Garba has been assigned to this ticket. Task queue load: 2 open assignments.",
+      "created_at": "2026-07-16T12:02:13.793Z"
+    },
+    {
+      "id": "cmt-1784203336018",
+      "report_id": "rep-1784199908433",
+      "user_id": "usr-admin-1",
+      "user_name": "Prof. Ibrahim Usman",
+      "user_role": "admin",
+      "text": "Technician Musa Garba has been assigned to this ticket. Task queue load: 3 open assignments.",
+      "created_at": "2026-07-16T12:02:16.018Z"
+    },
+    {
+      "id": "cmt-1784203373388",
+      "report_id": "rep-1784199908433",
+      "user_id": "usr-tech-1",
+      "user_name": "Musa Garba",
+      "user_role": "technician",
+      "text": "Status updated from \"assigned\" to \"in_progress\" by Musa Garba.",
+      "created_at": "2026-07-16T12:02:53.388Z"
     }
   ],
   "notifications": [
@@ -426,6 +467,66 @@
       "reference_id": "rep-1784199908433",
       "read": false,
       "created_at": "2026-07-16T11:05:10.748Z"
+    },
+    {
+      "id": "notif-1784203337690-assign",
+      "user_id": "usr-tech-1",
+      "title": "🛠️ New Task Assigned",
+      "message": "You have been assigned to: \"Voice transcription unavailable, please review the attached ...\" in ABU Campus (General)",
+      "type": "new_assignment",
+      "reference_id": "rep-1784199908433",
+      "read": false,
+      "created_at": "2026-07-16T12:02:17.690Z"
+    },
+    {
+      "id": "notif-1784203337772-assign-student",
+      "user_id": "usr-tech-1",
+      "title": "🛠️ Technician Dispatched",
+      "message": "Technician Musa Garba has been assigned to resolve your report: \"Voice transcription unavailable, please review the attached ...\"",
+      "type": "status_change",
+      "reference_id": "rep-1784199908433",
+      "read": false,
+      "created_at": "2026-07-16T12:02:17.772Z"
+    },
+    {
+      "id": "notif-1784203339236-assign",
+      "user_id": "usr-tech-1",
+      "title": "🛠️ New Task Assigned",
+      "message": "You have been assigned to: \"Voice transcription unavailable, please review the attached ...\" in ABU Campus (General)",
+      "type": "new_assignment",
+      "reference_id": "rep-1784199908433",
+      "read": false,
+      "created_at": "2026-07-16T12:02:19.236Z"
+    },
+    {
+      "id": "notif-1784203339287-assign-student",
+      "user_id": "usr-tech-1",
+      "title": "🛠️ Technician Dispatched",
+      "message": "Technician Musa Garba has been assigned to resolve your report: \"Voice transcription unavailable, please review the attached ...\"",
+      "type": "status_change",
+      "reference_id": "rep-1784199908433",
+      "read": false,
+      "created_at": "2026-07-16T12:02:19.287Z"
+    },
+    {
+      "id": "notif-1784203374721-status",
+      "user_id": "usr-tech-1",
+      "title": "🔄 Ticket Status Updated: IN PROGRESS",
+      "message": "Your report regarding the voice transcription issue is now being processed. A technician is currently working to resolve this for you.",
+      "type": "status_change",
+      "reference_id": "rep-1784199908433",
+      "read": false,
+      "created_at": "2026-07-16T12:02:54.721Z"
+    },
+    {
+      "id": "notif-1784203374787-inspect-start-admin",
+      "user_id": "admin",
+      "title": "🚀 Inspection Started",
+      "message": "Technician Musa Garba has started the inspection for Ticket #rep-1784199908433 (OTHERS) in ABU Campus (General).",
+      "type": "status_change",
+      "reference_id": "rep-1784199908433",
+      "read": false,
+      "created_at": "2026-07-16T12:02:54.787Z"
     }
   ]
 }

@@ -46,20 +46,20 @@ function createCustomIcon(category: ReportCategory, status: string) {
     html: `
       <div class="relative flex flex-col items-center group cursor-pointer transition-all duration-200 hover:scale-115">
         <!-- SVG Pin Shape (Sized Down) -->
-        <svg style="width: 24px; height: 30px;" class="drop-shadow-md filter" viewBox="0 0 24 30" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <svg style="width: 18px; height: 22px;" class="drop-shadow-sm filter" viewBox="0 0 24 30" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M12 0C5.37 0 0 5.37 0 12C0 19.5 12 30 12 30C12 30 24 19.5 24 12C24 5.37 18.63 0 12 0Z" fill="${color}" />
           <path d="M12 1.5C6.2 1.5 1.5 6.2 1.5 12C1.5 18 12 27.5 12 27.5C12 27.5 22.5 18 22.5 12C22.5 6.2 17.8 1.5 12 1.5Z" fill="#0b1329" />
           <circle cx="12" cy="11" r="8" fill="#0b1329" />
         </svg>
         <!-- Category Emoji Centered (Sized Down) -->
-        <span class="absolute top-[4px] text-[10px] select-none z-10">${iconEmoji}</span>
+        <span class="absolute top-[2.5px] text-[7.5px] select-none z-10">${iconEmoji}</span>
         <!-- Active submitted radar pulse -->
-        ${status === 'submitted' ? `<span class="absolute top-[3px] w-6 h-6 rounded-full animate-ping bg-red-500 opacity-25 pointer-events-none"></span>` : ''}
+        ${status === 'submitted' ? `<span class="absolute top-[2px] w-4 h-4 rounded-full animate-ping bg-red-500 opacity-25 pointer-events-none"></span>` : ''}
       </div>
     `,
-    iconSize: [24, 30],
-    iconAnchor: [12, 30],
-    popupAnchor: [0, -28]
+    iconSize: [18, 22],
+    iconAnchor: [9, 22],
+    popupAnchor: [0, -20]
   });
 }
 
@@ -68,17 +68,17 @@ const activeReportingIcon = L.divIcon({
   className: 'custom-reporting-marker',
   html: `
     <div class="relative flex flex-col items-center animate-bounce cursor-pointer">
-      <svg style="width: 28px; height: 36px;" class="drop-shadow-xl filter" viewBox="0 0 24 30" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <svg style="width: 20px; height: 26px;" class="drop-shadow-xl filter" viewBox="0 0 24 30" fill="none" xmlns="http://www.w3.org/2000/svg">
         <path d="M12 0C5.37 0 0 5.37 0 12C0 19.5 12 30 12 30C12 30 24 19.5 24 12C24 5.37 18.63 0 12 0Z" fill="#f43f5e" />
         <path d="M12 1.5C6.2 1.5 1.5 6.2 1.5 12C1.5 18 12 27.5 12 27.5C12 27.5 22.5 18 22.5 12C22.5 6.2 17.8 1.5 12 1.5Z" fill="#ffffff" />
         <circle cx="12" cy="11" r="8.5" fill="#f43f5e" />
       </svg>
-      <span class="absolute top-[5px] text-[12px] select-none z-10">📍</span>
+      <span class="absolute top-[3px] text-[9px] select-none z-10">📍</span>
     </div>
   `,
-  iconSize: [28, 36],
-  iconAnchor: [14, 36],
-  popupAnchor: [0, -32]
+  iconSize: [20, 26],
+  iconAnchor: [10, 26],
+  popupAnchor: [0, -24]
 });
 
 // Pulse indicator icon when zooming to a zone
@@ -134,20 +134,20 @@ export function createZoneIcon(zone: AbuZone, isSelected: boolean) {
     html: `
       <div class="relative flex flex-col items-center group cursor-pointer transition-all duration-200 hover:scale-115 ${isSelected ? 'scale-115' : ''}">
         <!-- SVG Pin Shape (Sized Down) -->
-        <svg style="width: 20px; height: 25px;" class="drop-shadow-sm filter" viewBox="0 0 24 30" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <svg style="width: 15px; height: 19px;" class="drop-shadow-sm filter" viewBox="0 0 24 30" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M12 0C5.37 0 0 5.37 0 12C0 19.5 12 30 12 30C12 30 24 19.5 24 12C24 5.37 18.63 0 12 0Z" fill="${color}" />
           <path d="M12 1.5C6.2 1.5 1.5 6.2 1.5 12C1.5 18 12 27.5 12 27.5C12 27.5 22.5 18 22.5 12C22.5 6.2 17.8 1.5 12 1.5Z" fill="#0f172a" />
           <circle cx="12" cy="11" r="7" fill="#0f172a" />
         </svg>
         <!-- Category Emoji Centered (Sized Down) -->
-        <span class="absolute top-[3px] text-[8px] font-sans select-none z-10">${info.emoji}</span>
+        <span class="absolute top-[2px] text-[6px] font-sans select-none z-10">${info.emoji}</span>
         <!-- Optional pulse outer ring if selected -->
-        ${isSelected ? `<span class="absolute top-1 w-5 h-5 rounded-full animate-ping bg-emerald-400 opacity-20 pointer-events-none"></span>` : ''}
+        ${isSelected ? `<span class="absolute top-0.5 w-4 h-4 rounded-full animate-ping bg-emerald-400 opacity-20 pointer-events-none"></span>` : ''}
       </div>
     `,
-    iconSize: [20, 25],
-    iconAnchor: [10, 25],
-    popupAnchor: [0, -22]
+    iconSize: [15, 19],
+    iconAnchor: [7.5, 19],
+    popupAnchor: [0, -17]
   });
 }
 
