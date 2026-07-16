@@ -125,7 +125,7 @@ export const abuGeoJson = {
     { "type": "Feature", "properties": { "zone_id": "fac-law", "name": "Faculty of Law", "category": "faculty" }, "geometry": { "type": "Point", "coordinates": [7.7248880, 11.0841510] } },
     { "type": "Feature", "properties": { "zone_id": "hall-sasa", "name": "Sasa Hostel (female)", "category": "hostel" }, "geometry": { "type": "Point", "coordinates": [7.6512, 11.1558] } },
     { "type": "Feature", "properties": { "zone_id": "assembly-hall", "name": "ABU Assembly Hall", "category": "amenity" }, "geometry": { "type": "Point", "coordinates": [7.6485, 11.1512] } },
-    { "type": "Feature", "properties": { "zone_id": "sports-complex", "name": "ABU Sports Complex & Stadium", "category": "amenity" }, "geometry": { "type": "Point", "coordinates": [7.6411538, 11.1559384] } }
+    { "type": "Feature", "properties": { "zone_id": "sports-complex", "name": "ABU Sports Complex & Stadium", "category": "amenity" }, "geometry": { "type": "Point", "coordinates": [7.6460, 11.1555] } }
   ]
 };
 

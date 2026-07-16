@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Camera, MapPin, Sparkles, Send, WifiOff, CheckCircle, Search, ChevronDown, Check, X, MessageSquare, Mic, Trash2, Shield, Calendar, RefreshCcw } from 'lucide-react';
 import { ReportCategory, OfflineReportQueueItem } from '../types';
 import { findZoneForCoordinates, abuZones } from '../data/abuZones';
+import { addOfflineReport, getOfflineReports } from '../utils/offlineQueue';
 
 interface ReportFormProps {
   userId: string;
@@ -60,6 +61,24 @@ export default function ReportForm({ userId, reportingCoords, onSuccess, onCance
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
+  const [offlineQueue, setOfflineQueue] = useState<OfflineReportQueueItem[]>([]);
+
+  // Load and sync offline queue state
+  useEffect(() => {
+    const loadQueue = async () => {
+      const queue = await getOfflineReports();
+      setOfflineQueue(queue);
+    };
+    loadQueue();
+    window.addEventListener('storage', loadQueue);
+    window.addEventListener('campulse-offline-queue-updated', loadQueue);
+    const interval = setInterval(loadQueue, 3000);
+    return () => {
+      window.removeEventListener('storage', loadQueue);
+      window.removeEventListener('campulse-offline-queue-updated', loadQueue);
+      clearInterval(interval);
+    };
+  }, []);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -268,9 +287,6 @@ export default function ReportForm({ userId, reportingCoords, onSuccess, onCance
     if (isOffline) {
       // Offline queue flow
       try {
-        const queueRaw = localStorage.getItem('campulse-offline-queue');
-        const queue: OfflineReportQueueItem[] = queueRaw ? JSON.parse(queueRaw) : [];
-        
         const tempReportItem: OfflineReportQueueItem = {
           tempId: `temp-${Date.now()}`,
           category: 'others',
@@ -282,8 +298,7 @@ export default function ReportForm({ userId, reportingCoords, onSuccess, onCance
           created_at: new Date().toISOString()
         };
 
-        queue.push(tempReportItem);
-        localStorage.setItem('campulse-offline-queue', JSON.stringify(queue));
+        await addOfflineReport(tempReportItem);
 
         setChatMessages(prev => [
           ...prev,
@@ -666,6 +681,27 @@ export default function ReportForm({ userId, reportingCoords, onSuccess, onCance
             </button>
           )}
         </div>
+
+        {/* Offline Queued Tickets Panel */}
+        {offlineQueue.length > 0 && (
+          <div className="bg-amber-50/80 border border-amber-200/50 p-2.5 rounded-xl space-y-1 text-slate-700 mb-2.5 font-sans shadow-xs">
+            <div className="flex items-center justify-between text-[9px] font-bold text-amber-800 uppercase tracking-wide">
+              <span className="flex items-center gap-1">🗄️ {offlineQueue.length} Pending Offline Ticket(s)</span>
+              <span className="text-[7.5px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded-full font-bold">Waiting for Network Sync</span>
+            </div>
+            <div className="max-h-24 overflow-y-auto space-y-1 divide-y divide-amber-100/40 pr-1 scrollbar-thin">
+              {offlineQueue.map((item) => (
+                <div key={item.tempId} className="flex justify-between items-center text-[9px] pt-1 first:pt-0">
+                  <div className="truncate pr-2">
+                    <span className="font-bold text-slate-800 block truncate">{item.description || 'Voice Note Report'}</span>
+                    <span className="text-slate-500 text-[8px]">Category: {item.category.replace('_', ' ').toUpperCase()} • Lat/Lng: {item.lat.toFixed(4)}, {item.lng.toFixed(4)}</span>
+                  </div>
+                  <span className="shrink-0 text-slate-400 font-mono text-[8px]">{new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Input Message Form area */}
         <form onSubmit={handleFormSubmission} className="flex gap-2 items-center">
