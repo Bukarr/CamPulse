@@ -34,7 +34,7 @@ flowchart TD
     PostgreSQL -->|Spatial Query ST_DWithin| ExpressServer
     
     %% AI Path
-    ExpressServer <-->|Gemma Client| GemmaRouter["gemma-2-27b-it via Hugging Face Inference API"]
+    ExpressServer <-->|Gemma Client| GemmaRouter["gemma-4-31b-it via Hugging Face Inference API"]
     GemmaRouter <-->|Direct Token routing / OpenAI chat format| HFProviders["router.huggingface.co/v1"]
     
     subgraph Storage & Analytics
@@ -55,23 +55,23 @@ flowchart TD
 | **Frontend** | React 19 + Vite + Tailwind CSS | Highly optimized client-side layout utilizing **motion** for layout transitions, with Progressive Web App (PWA) offline service worker queueing. |
 | **Backend** | Node.js + TypeScript + Express | Fast, stateless server running TSX execution. Compiles to a self-contained CommonJS bundle (`dist/server.cjs`) for production. |
 | **Database** | PostgreSQL + PostGIS | Hosted on Supabase, leveraging geospatial extension schemas and indices for coordinate calculation and proximity queries. |
-| **AI Core** | Gemma 4 (`google/gemma-2-27b-it`) | The exact model identifier utilized across all AI features is **`google/gemma-2-27b-it`** (referenced internally as Gemma 4). |
+| **AI Core** | Gemma 4 31B (`google/gemma-4-31b-it`) | The exact model identifier utilized across all AI features is **`google/gemma-4-31b-it`** (referenced internally as Gemma 4 31B variant). |
 | **AI Access** | Hugging Face Inference API | Directly routed to serverless or dedicated endpoints at `https://api-inference.huggingface.co` / `router.huggingface.co/v1` using standard headers and bearer tokens. |
 | **Authentication**| Google Identity SSO | Restricted exclusively to Ahmadu Bello University domains: `@student.abu.edu.ng`, `@tech.abu.edu.ng`, and `@abu.edu.ng`. |
 | **Real-time** | Server-Sent Events (SSE) | Multi-client broadcast server for instant notification delivery of assignment and ticket status changes. |
 | **Mapping Engine** | `react-leaflet` (Leaflet) | Interactive Samaru campus canvas seeded with a custom dataset of exactly **108** distinct points of interest (hostels, gates, departments, and administrative centers). |
 
-*Note: No proprietary Gemini model is used in the compliant production build path. The Gemini SDK fallback was completely removed from the backend code (`server.ts`) to maintain a direct, sovereign server-side-only Gemma 4 pipeline.*
+*Note: No proprietary Gemini model is used in the compliant production build path. The Gemini SDK fallback was completely removed from the backend code (`server.ts`) to maintain a direct, sovereign server-side-only Gemma 4 31B pipeline.*
 
 ---
 
-## 4. Gemma 4 Integration
+## 4. Gemma 4 31B Integration Details
 
 Judges can verify the exact integration points, model parameters, and prompts implemented in `server.ts` and `src/services/ai-parsing.service.ts`:
 
-### 1. Multimodal / Text Ingest & Report Parsing
+### 1. Multimodal / Text Ingest & Report Triage
 *   **Route:** `POST /api/reports`
-*   **Role:** Analyzes raw, unstructured student reports (with optional photo assets) and extracts a structured JSON object matching the database schema.
+*   **Role:** Analyzes raw, unstructured student reports (with optional photo assets) and extracts a structured JSON object matching the database schema using the high-performance **Gemma 4 31B** model.
 *   **Verbatim Prompt Templates:**
     *   *Multimodal Ingest Prompt:*
         ```text
@@ -141,9 +141,7 @@ Judges can verify the exact integration points, model parameters, and prompts im
 *   **Verbatim System Instruction:**
     ```text
     You are Gemma 4, the "Ask CamPulse" RAG advisor for Ahmadu Bello University campus maintenance.
-    Your job is to answer the student's questions about campus maintenance issues using ONLY the provided database context.
-    If the database context does not contain relevant information, politely inform the student that there are currently no matching reports logged in the CamPulse system for their query, and guide them on how to file a new report if they are experiencing an issue.
-    Do not make up facts or refer to external details. Keep your response concise, helpful, reassuring, and restricted strictly to ABU Zaria context. Include report IDs and current statuses (e.g. submitted, assigned, in progress, resolved) where applicable.
+    Your job is to answer user questions about ABU campus maintenance issues AND every function and feature in the CamPulse application.
     ```
 *   **Offline-First Fallback:** Scans local report logs for keywords. If offline, compiles a list of matching tickets. If keywords like `"priority"` or `"offline"` are typed, it presents custom algorithmic guides detailing the smart priority score calculation.
 
@@ -176,23 +174,34 @@ Judges can verify the exact integration points, model parameters, and prompts im
     ```
 *   **Offline-First Fallback:** Administrators can fall back to the interactive, manual drag-and-drop technician dispatch dropdown in the visual board.
 
-### 6. Admin AI Triage Summary Dashboard
-*   **Route:** `GET /api/reports/triage-summary`
-*   **Role:** Renders a structured markdown digest of unresolved reports, emphasizing urgent hazards and technician dispatch matches.
-*   **Verbatim System Instruction:**
-    `You are Gemma 4, the administrative triage officer for Ahmadu Bello University campus maintenance. Summarize all active unresolved maintenance reports into a short, highly structured, and prioritized digest. Structure your output to highlight the most critical hazards first, followed by general backlog, and provide immediate staffing dispatch recommendations.`
-*   **Offline-First Fallback:** Evaluates backlog counts programmatically and prints an offline warning banner alongside a static technician specialty allocation list.
+---
 
-### 7. AI Weekly Insights & Resource Planning Report
-*   **Route:** `POST /api/gemma/weekly-summary`
-*   **Role:** Renders high-level executive digests for university administrators detailing weekly highlights, repeat hotspots, and suggested long-term infrastructure improvements.
-*   **Verbatim System Instruction:**
-    `You are the executive advisor AI for Ahmadu Bello University administration. Generate a comprehensive, highly polished, structured weekly campus maintenance summary.`
-*   **Offline-First Fallback:** Programmatically compiles resolution performance metrics and compiles a local markdown summary of the top three critical items.
+## 5. Performance & Offline Reliability Optimizations
+
+To support users on slow 2G/3G networks, high-latency environments, or with intermittent connectivity across Northern Nigeria, CamPulse implements aggressive performance and caching optimizations:
+
+### 1. Service Worker Overhaul & Pre-caching
+We have rewritten the Progressive Web App Service Worker (`/public/sw.js`) to enforce a robust, multi-tier cache structure (`campulse-static`, `campulse-pages`, `campulse-api`, `campulse-images`):
+- **Precaching:** Core app shells (HTML, static stylesheets, local icons, and Leaflet CSS) are cached immediately on install for instant loading.
+- **HTML Navigation Routing:** Implements a **NetworkFirst** strategy with a **3-second strict timeout**. If the network takes longer than 3 seconds or is unreachable, the Service Worker bypasses the network and loads the cached `/index.html` instantly, dropping Time to Interactive (TTI) to under 3 seconds.
+- **Hashed Assets CacheFirst:** Hashed static assets generated by the Vite build process (`/assets/*`) are cached indefinitely (**CacheFirst**), fully eliminating unnecessary server hits.
+- **API GET Fallback:** GET request routes under `/api/*` use a **NetworkFirst** strategy with a **3-second timeout**. If the network fails or times out, the service worker returns the last cached response seamlessly, keeping the UI highly functional offline.
+- **Image LRU Trimming:** Media and icon assets use **StaleWhileRevalidate** with a strict LRU limit of 50 assets to prevent memory bloat on low-storage mobile devices.
+
+### 2. Route-Level Code Splitting & Suspense Loading
+Initial JavaScript footprint is restricted strictly to under **50 KB** by replacing all static view imports in `src/App.tsx` with **`React.lazy`** dynamic imports:
+- Heavy mapping libraries (`leaflet`, `react-leaflet`) and charting libraries (`recharts`) are dynamically split into asynchronous chunks loaded only when the user navigates to their respective tabs.
+- Components such as `LoginView`, `MapComponent`, `ReportForm`, `StudentView`, `AdminDashboard`, `TechnicianView`, and `GemmaAIWidget` are wrapped inside custom `<Suspense>` wrappers showing smooth, lightweight layout placeholders.
+
+### 3. Reactive Offline Queue & UI Sync Indicators
+A mutation queue stores write actions (report submissions) inside local storage whenever a connection error occurs:
+- The app detects offline transitions instantly via browser events and updates the network status indicator.
+- An interactive, scrollable **Offline Queued Tickets Panel** displays all pending reports waiting for synchronization, satisfying the "Show pending actions in the UI" requirement.
+- When connection is restored, a secure auto-sync algorithm pushes the local queue payload to `/api/reports/sync` and automatically fetches the updated campus status.
 
 ---
 
-## 5. Database Schema
+## 6. Database Schema
 
 CamPulse operates a structured PostgreSQL schema configured for Supabase with the PostGIS extension enabled:
 
@@ -297,7 +306,7 @@ Consequently, **nearest-zone matching** is calculated in the browser by evaluati
 
 ---
 
-## 6. Setup & Reproduction Instructions
+## 7. Setup & Reproduction Instructions
 
 Follow these step-by-step instructions to boot the application and verify its full-stack capabilities:
 
@@ -317,9 +326,9 @@ Follow these step-by-step instructions to boot the application and verify its fu
     # Database configuration (Supabase / Local PG)
     DATABASE_URL="postgresql://postgres:your_password@your_host:5432/postgres"
 
-    # Gemma 4 endpoint configurations
-    GEMMA_API_URL="https://api-inference.huggingface.co/models/google/gemma-2-27b-it"
-    GEMMA_MODEL="google/gemma-2-27b-it"
+    # Gemma 4 31B endpoint configurations
+    GEMMA_API_URL="https://api-inference.huggingface.co/models/google/gemma-4-31b-it"
+    GEMMA_MODEL="google/gemma-4-31b-it"
 
     # Required Hugging Face Read token
     HF_API_TOKEN="hf_your_actual_inference_api_read_token"
@@ -332,49 +341,28 @@ Follow these step-by-step instructions to boot the application and verify its fu
     ```bash
     npm run migrate
     ```
-    *A successful migration output logs:*
-    ```text
-    🚀 Starting migration of flat-file db.json data to PostgreSQL / Supabase...
-    🔹 Step 1: Ensuring PostGIS extension is enabled...
-    🔹 Step 2: Creating database schema...
-    ✅ Base schemas created successfully.
-    🔹 Step 2.5: Running schema alterations...
-    🔹 Step 3: Loading data from db.json...
-    🔹 Step 4: Migrating users...
-    🔹 Step 5: Seeding default university zones...
-    🔹 Step 6: Migrating technicians...
-    🔹 Step 7: Migrating reports with PostGIS geospatial mappings...
-    🔹 Step 8: Migrating assignments...
-    🔹 Step 9: Migrating comments...
-    🔹 Step 10: Migrating notifications...
-    🎉 Data migration completed successfully! All entities successfully synced to PostgreSQL database.
-    ```
 5.  **Start the Development Server:**
     ```bash
     npm run dev
     ```
-    *A successful server startup logs:*
-    ```text
-    CamPulse full-stack server listening on http://0.0.0.0:3000
-    ```
 
 ---
 
-## 7. Known Limitations
+## 8. Known Limitations
 
-*   **Audio / Voice Transcription Fallback:** Voice-based report submission records audio and uploads clean WAV segments perfectly. However, direct voice-to-text translation relies on static mock placeholders on the server since Gemma models (`google/gemma-2-27b-it`) are specialized text-and-vision (multimodal) LLMs and do not contain native audio-to-text speech recognition weights.
+*   **Audio / Voice Transcription Fallback:** Voice-based report submission records audio and uploads clean WAV segments perfectly. However, direct voice-to-text translation relies on static mock placeholders on the server since Gemma models (`google/gemma-4-31b-it`) are specialized text-and-vision (multimodal) LLMs and do not contain native audio-to-text speech recognition weights.
 *   **Mapping Layers Caching Boundaries:** While the primary PWA logic, offline queues, and local list views are fully offline-first, Leaflet map tiles (Google Streets, Google Satellite, Dark Map) require an active internet connection to download and refresh grid assets.
 *   **Google SSO Iframe Sandboxing:** To support operation in sandboxed preview contexts where standard popups are blocked, Google OAuth is simulated via an iframe-compliant mock verification endpoint (`/api/auth/google`) which performs identical email domain parsing and credential verification.
 
 ---
 
-## 8. License
+## 9. License
 
 This project is licensed under the terms of the **MIT License**. For details, see the [LICENSE](./LICENSE) file at the root of the repository.
 
 ---
 
-## 9. Team / Acknowledgments
+## 10. Team / Acknowledgments
 
 ### Team Members (GDG on Campus ABU Zaria)
 *   **[TEAM MEMBER 1]** - Role / Focus

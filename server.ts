@@ -2,7 +2,6 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
-import { GoogleGenAI, Type } from '@google/genai';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 
@@ -197,19 +196,6 @@ async function initializePostgres() {
   }
 }
 
-// Initialize Gemini SDK with telemetry header
-const ai = process.env.GEMINI_API_KEY 
-  ? new GoogleGenAI({
-      apiKey: process.env.GEMINI_API_KEY,
-      apiVersion: 'v1',
-      httpOptions: {
-        headers: {
-          'User-Agent': 'aistudio-build'
-        }
-      }
-    })
-  : null;
-
 const PORT = 3000;
 const DB_FILE = path.join(process.cwd(), 'db.json');
 
@@ -249,14 +235,14 @@ interface Report {
   voice_interpretation?: string;
 }
 
-// Global Core AI Engine caller for Gemma 4 (with OpenAI, Hugging Face, & Ollama endpoint support and Gemini fallback)
+// Global Core AI Engine caller for Gemma 4 (strictly enforcing the use of Hugging Face Inference API / Gemma 4)
 async function callGemmaAI(
   prompt: string, 
   systemInstruction?: string, 
   jsonMode: boolean = false,
   imagePayload?: { mimeType: string, data: string }
 ): Promise<string> {
-  const gemmaModelString = process.env.GEMMA_MODEL || 'google/gemma-2-27b-it';
+  const gemmaModelString = process.env.GEMMA_MODEL || 'google/gemma-4-31b-it';
 
   // 1. Try process.env.GEMMA_API_URL first (self-hosted Gemma 4 or Hugging Face Inference API instance)
   if (process.env.GEMMA_API_URL) {
@@ -368,8 +354,8 @@ async function callGemmaAI(
     }
   }
 
-  // Gemma Fallback is disabled completely as per configuration.
-  throw new Error('All AI services currently unreachable.');
+  // Gemma API is strictly enforced and is currently unreachable.
+  throw new Error('Gemma AI service currently unreachable.');
 }
 
 // Physical distance calculation using Haversine formula (matches PostGIS 100m radius check)
@@ -562,6 +548,62 @@ async function startServer() {
   // SSE client tracker for real-time notifications
   const sseClients: { userId: string; res: express.Response }[] = [];
 
+  // Helper to determine if a notification should be delivered to a given user based on role-based rules
+  function shouldUserReceiveNotification(user: any, notification: Notification): boolean {
+    if (!user) return false;
+
+    // 1. If user is an Admin
+    if (user.role === 'admin') {
+      // Admins receive all general admin notifications, direct notifications, and any maintenance reports notifications (reference_id)
+      if (notification.user_id === 'admin' || notification.user_id === user.id) {
+        return true;
+      }
+      if (notification.reference_id) {
+        return true;
+      }
+      return false;
+    }
+
+    // 2. If user is a Technician
+    if (user.role === 'technician') {
+      // Technicians only receive tasks specifically assigned to them.
+      // First, check if the notification is a direct assignment/update for them
+      if (notification.user_id === user.id) {
+        return true;
+      }
+      // Or check if the notification's report is assigned to them
+      if (notification.reference_id) {
+        const tech = db.technicians.find((t: any) => t.user_id === user.id);
+        if (tech) {
+          const isAssigned = db.assignments.some(
+            (asg: any) => asg.report_id === notification.reference_id && asg.technician_id === tech.id
+          );
+          if (isAssigned) {
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+
+    // 3. If user is a Student
+    // "Ensure students only receive updates regarding their submitted reports."
+    // They must be the reporter of the report referenced in the notification.
+    if (notification.reference_id) {
+      const report = db.reports.find((r: any) => r.id === notification.reference_id);
+      if (report && report.reporter_id === user.id) {
+        // Also ensure it is targeted to them
+        if (notification.user_id === user.id) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    // Fallback for non-report-related notifications directly targeted to them
+    return notification.user_id === user.id;
+  }
+
   // Broadcast and save real-time notifications
   function sendLiveNotification(notification: Notification, targetRole?: 'admin' | 'technician' | 'student') {
     if (!db.notifications) {
@@ -576,12 +618,7 @@ async function startServer() {
       const user = db.users.find((u: any) => u.id === client.userId);
       if (!user) return;
 
-      const isDirectTarget = client.userId === notification.user_id;
-      const isRoleTarget = targetRole && user.role === targetRole;
-      const isGroupAdminTarget = notification.user_id === 'admin' && user.role === 'admin';
-      const isGroupTechTarget = notification.user_id === 'technician' && user.role === 'technician';
-
-      if (isDirectTarget || isRoleTarget || isGroupAdminTarget || isGroupTechTarget) {
+      if (shouldUserReceiveNotification(user, notification)) {
         try {
           client.res.write(`data: ${JSON.stringify(notification)}\n\n`);
         } catch (err) {
@@ -648,16 +685,8 @@ async function startServer() {
 
     if (!db.notifications) db.notifications = [];
 
-    // Filter based on roles or specific targeted user
-    const filtered = db.notifications.filter((n: Notification) => {
-      if (user.role === 'admin') {
-        return n.user_id === 'admin' || n.user_id === userId;
-      }
-      if (user.role === 'technician') {
-        return n.user_id === 'technician' || n.user_id === userId;
-      }
-      return n.user_id === userId;
-    });
+    // Filter using our robust role-based helper function
+    const filtered = db.notifications.filter((n: Notification) => shouldUserReceiveNotification(user, n));
 
     // Newest first
     filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
@@ -686,13 +715,8 @@ async function startServer() {
 
     if (!db.notifications) db.notifications = [];
 
-    if (user.role === 'admin') {
-      db.notifications = db.notifications.filter((n: Notification) => n.user_id !== 'admin' && n.user_id !== userId);
-    } else if (user.role === 'technician') {
-      db.notifications = db.notifications.filter((n: Notification) => n.user_id !== 'technician' && n.user_id !== userId);
-    } else {
-      db.notifications = db.notifications.filter((n: Notification) => n.user_id !== userId);
-    }
+    // Filter out notifications that this user is eligible to receive
+    db.notifications = db.notifications.filter((n: Notification) => !shouldUserReceiveNotification(user, n));
 
     saveDatabase(db);
     res.json({ success: true });
@@ -768,6 +792,47 @@ async function startServer() {
     const user = db.users.find((u: User) => u.id === userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
     res.json(user);
+  });
+
+  // Update user role (helper for role-swapping / testing)
+  app.post('/api/users/role', (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: 'Unauthorized' });
+    const parts = authHeader.replace('Bearer session-jwt-', '').split('-');
+    const userId = parts.length > 1 ? parts.slice(0, -1).join('-') : parts[0];
+    const { role } = req.body;
+    if (!role) return res.status(400).json({ error: 'Role is required' });
+
+    const user = db.users.find((u: User) => u.id === userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    user.role = role;
+
+    // Check if user is a technician and does not have a technician profile, create one
+    if (role === 'technician') {
+      const existingTech = db.technicians.find((t: Technician) => t.user_id === user.id);
+      if (!existingTech) {
+        db.technicians.push({
+          id: `tech-${Date.now()}`,
+          user_id: user.id,
+          name: user.name,
+          email: user.email,
+          skill_tags: ['broken_lights', 'plumbing', 'wifi_outage', 'security', 'structural', 'others'],
+          current_load: 0
+        });
+      }
+    }
+
+    saveDatabase(db);
+
+    // Also sync to PostgreSQL if pool is active
+    const pool = getPgPool();
+    if (pool) {
+      pool.query('UPDATE users SET role = $1 WHERE id = $2', [role, userId])
+        .catch(err => console.error('[PostgreSQL Error] Failed to update user role:', err));
+    }
+
+    res.json({ success: true, user });
   });
 
   // Get all reports
@@ -867,9 +932,9 @@ async function startServer() {
     res.json(filtered);
   });
 
-  // Helper to transcribe/interpret base64 audio to English via Gemma 4 / Gemini Fallback
+  // Helper to transcribe/interpret base64 audio to English via Gemma 4
   async function interpretVoice(voiceUrl: string): Promise<string> {
-    const gemmaModelString = process.env.GEMMA_MODEL || 'gemma-4';
+    const gemmaModelString = process.env.GEMMA_MODEL || 'google/gemma-4-31b-it';
     const matches = voiceUrl.match(/^data:([^;]+);base64,(.+)$/);
     if (!matches) {
       throw new Error('Invalid voice data URI format');
@@ -910,19 +975,9 @@ async function startServer() {
 
     let voice_interpretation = '';
     if (voice_url) {
-      try {
-        console.log('[Gemma Voice interpreter] Start translating audio...');
-        voice_interpretation = await interpretVoice(voice_url);
-        console.log('[Gemma Voice interpreter] Translation completed:', voice_interpretation);
-        if (voice_interpretation) {
-          description = voice_interpretation;
-        }
-      } catch (err) {
-        console.error('[Gemma Voice interpreter Error] Failed to interpret voice:', err);
-        voice_interpretation = 'Voice report received. AI transcription is currently offline. Please play the audio recording directly.';
-        if (!description) {
-          description = 'Voice report received. Play recording for details.';
-        }
+      voice_interpretation = 'Voice report received. AI transcription is currently disabled (voice not supported by the 31B model). Please play the audio recording directly.';
+      if (!description) {
+        description = 'Voice report received. Play recording for details.';
       }
     }
 
@@ -2512,9 +2567,27 @@ Return ONLY a strict JSON object (no markdown, no quotes, just raw JSON):
     try {
       console.log(`[Ask CamPulse RAG] Retrieved ${retrievedReports.length} reports for context.`);
       const systemInstruction = `You are Gemma 4, the "Ask CamPulse" RAG advisor for Ahmadu Bello University campus maintenance.
-Your job is to answer the student's questions about campus maintenance issues using ONLY the provided database context.
-If the database context does not contain relevant information, politely inform the student that there are currently no matching reports logged in the CamPulse system for their query, and guide them on how to file a new report if they are experiencing an issue.
-Do not make up facts or refer to external details. Keep your response concise, helpful, reassuring, and restricted strictly to ABU Zaria context. Include report IDs and current statuses (e.g. submitted, assigned, in progress, resolved) where applicable.`;
+Your job is to answer user questions about ABU campus maintenance issues AND every function and feature in the CamPulse application.
+
+APPLICATION FEATURE KNOWLEDGE BASE:
+1. APPLICATION ROLES & PRIVILEGES:
+   - STUDENT / USER: Can file maintenance reports for campus zones (Suleiman Hostel, Amina Hostel, Ribadu, Engineering, Kongo, etc.). Can attach photos or record voice notes (voice transcription disabled, but voice attachments and audio playback work). Can submit anonymously or publicly. Can upvote reports to help escalate critical issues. Can post comments in real-time to discuss tickets. Can track reports on the interactive Map. Can chat with the Ask CamPulse AI Advisor.
+   - TECHNICIAN: Has a dedicated workspace listing assigned maintenance tasks. Can progress work status from 'assigned' -> 'in_progress' ('Start Work' button) -> 'resolved' ('Complete Work' button).
+   - ADMINISTRATOR: Has complete oversight via the Admin Dashboard. Can view statistics, average resolution times, and category breakdowns. Can assign reports to technicians manually or via the notifications panel 'Assign' button. Can command AI dispatch through Chat (e.g. "Assign ticket #X to John Okoye"). Can view automated triage diagnostics and access the Gemma AI Weekly Operations Summary Digest.
+
+2. CORE CAPABILITIES & WORKFLOWS:
+   - INTAKE ASSISTANT & SMART PARSING: Automatically classifies and parses report descriptions to extract categories, locations, and sentiment.
+   - OFFLINE-FIRST RESILIENCE: If offline, tickets are queued in localStorage and synced automatically once online to prevent data loss.
+   - GEMMA RANK PRIORITY SCORE: Sorts issues (P1 to P5) using: Rank Score = (Priority Score * 15) + (Upvotes * 5) + (Comments * 3).
+   - REAL-TIME SSE NOTIFICATIONS: Server-Sent Events push live alerts for status changes and assignments using strict role-based rules.
+   - DYNAMIC MAP VISUALIZATION: Displays color-coded campus zones across ABU Samaru and Kongo with interactive pins.
+   - DUPLICATE TICKET CLUSTERING: Consolidates duplicate reports into single high-impact tickets with duplicate counters.
+   - VOICE INPUT FEATURE: Allows recording audio notes in English, Hausa, Yoruba, or Pidgin, attaching them to tickets for playback.
+
+GUIDELINES FOR ANSWERING:
+- If the user asks about the application's functions, features, roles, workflows, offline mode, priority score, or voice features, answer comprehensively and accurately using the APPLICATION FEATURE KNOWLEDGE BASE above.
+- If the user asks about a specific maintenance issue or ticket status, use the provided DATABASE RECONSTRUCTED CONTEXT below. If the database context does not contain relevant information for their query, politely inform them that no matching reports are logged in the database and guide them on how to file a new report.
+- Do not make up facts or refer to external details outside of this app. Keep your response concise, helpful, reassuring, and restricted strictly to the ABU Zaria and CamPulse context. Include report IDs and current statuses (e.g. submitted, assigned, in progress, resolved) where applicable.`;
 
       const contextText = retrievedReports.length > 0 
         ? retrievedReports.map(r => `- Ticket #${r.id} | Category: ${r.category.toUpperCase()} | Location: ${r.zone_name} | Status: ${r.status.toUpperCase()} | Description: "${r.description}" | Clustered: ${r.report_count || 1} report(s) | Logged: ${new Date(r.created_at).toLocaleDateString()}`).join('\n')
@@ -2540,14 +2613,22 @@ STUDENT QUERY: "${message}"`;
         return res.json({ reply });
       }
 
-      // Generic help guide fallback if no matching reports
+      // Generic help guide fallback if no matching reports (highly descriptive offline FAQ)
       let fallbackReply = `Hello! I am **Gemma 4 AI**, your ABU student assistant. I'm operating in offline mode. How can I guide you today?`;
       if (msgLower.includes('priority') || msgLower.includes('critical') || msgLower.includes('rank') || msgLower.includes('score')) {
-        fallbackReply = `**Priority & Gemma 4 Smart Ranking System:**\nIssues are sorted using: \`Rank Score = (Priority Score * 15) + (Upvotes * 5) + (Comments * 3)\``;
-      } else if (msgLower.includes('offline') || msgLower.includes('sync')) {
-        fallbackReply = `**Offline Queueing**: Tickets submitted while offline are saved in LocalStorage and synced automatically when back online.`;
+        fallbackReply = `**Priority & Gemma 4 Smart Ranking System:**\nIssues are sorted using: \`Rank Score = (Priority Score * 15) + (Upvotes * 5) + (Comments * 3)\`. Priority score goes from P1 (low) to P5 (critical) based on severity.`;
+      } else if (msgLower.includes('offline') || msgLower.includes('sync') || msgLower.includes('queue')) {
+        fallbackReply = `**Offline Queueing**: Tickets submitted while offline are saved in LocalStorage and synced automatically when back online to prevent data loss.`;
+      } else if (msgLower.includes('role') || msgLower.includes('user') || msgLower.includes('privilege') || msgLower.includes('student') || msgLower.includes('admin') || msgLower.includes('technician')) {
+        fallbackReply = `**CamPulse User Roles:**\n- **Students**: File reports (anonymously/publicly), attach photos/voice recordings, upvote reports, post comments, track tickets on the map.\n- **Technicians**: Track and progress assigned tasks ('assigned' -> 'in_progress' -> 'resolved').\n- **Admins**: Assign tickets to technicians, view stats/triage diagnostics, and access the Weekly Operations Summary Digest.`;
+      } else if (msgLower.includes('voice') || msgLower.includes('record') || msgLower.includes('language')) {
+        fallbackReply = `**Voice Input Feature**: You can record audio notes in English, Hausa, Yoruba, or Pidgin and attach them to your tickets. Voice transcription is currently disabled, but users and technicians can play the audio note directly on the ticket.`;
+      } else if (msgLower.includes('map') || msgLower.includes('zone') || msgLower.includes('location')) {
+        fallbackReply = `**Interactive Map**: Shows color-coded zones of ABU Samaru and Kongo campuses (e.g., Suleiman, Amina, Ribadu Hostels, Faculty of Engineering) with pins for all logged tickets.`;
+      } else if (msgLower.includes('report') || msgLower.includes('submit') || msgLower.includes('file')) {
+        fallbackReply = `**How to Report**: Tap the "Report" tab, describe the maintenance issue, choose a category and campus location (zone), optionally add a photo or voice recording, select if you want it to be anonymous, and click "Submit Report".`;
       } else {
-        fallbackReply = `I couldn't find any matching tickets in our active database for your query. Try searching with keywords like "Suleiman", "borehole", "WiFi", or "Amina hostel".`;
+        fallbackReply = `I couldn't find any matching tickets in our active database for your query. Try searching with keywords like "Suleiman", "borehole", "WiFi", or "Amina hostel", or ask about our features like "offline mode", "user roles", or "priority system".`;
       }
       return res.json({ reply: fallbackReply });
     }

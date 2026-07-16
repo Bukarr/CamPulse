@@ -125,7 +125,21 @@ export const abuGeoJson = {
     { "type": "Feature", "properties": { "zone_id": "fac-law", "name": "Faculty of Law", "category": "faculty" }, "geometry": { "type": "Point", "coordinates": [7.6435, 11.1508] } },
     { "type": "Feature", "properties": { "zone_id": "hall-sasa", "name": "Sasa Hostel (female)", "category": "hostel" }, "geometry": { "type": "Point", "coordinates": [7.6512, 11.1558] } },
     { "type": "Feature", "properties": { "zone_id": "assembly-hall", "name": "ABU Assembly Hall", "category": "amenity" }, "geometry": { "type": "Point", "coordinates": [7.6485, 11.1512] } },
-    { "type": "Feature", "properties": { "zone_id": "sports-complex", "name": "ABU Sports Complex & Stadium", "category": "amenity" }, "geometry": { "type": "Point", "coordinates": [7.6460, 11.1555] } }
+    { "type": "Feature", "properties": { "zone_id": "sports-complex", "name": "ABU Sports Complex & Stadium", "category": "amenity" }, "geometry": { "type": "Point", "coordinates": [7.6460, 11.1555] } },
+    { "type": "Feature", "properties": { "zone_id": "fac-admin", "name": "Faculty of Administration", "category": "faculty" }, "geometry": { "type": "Point", "coordinates": [7.6438, 11.1530] } },
+    { "type": "Feature", "properties": { "zone_id": "dept-public-admin", "name": "Department of Public Administration", "category": "department", "faculty": "Administration" }, "geometry": { "type": "Point", "coordinates": [7.6439, 11.1531] } },
+    { "type": "Feature", "properties": { "zone_id": "dept-business-admin", "name": "Department of Business Administration", "category": "department", "faculty": "Administration" }, "geometry": { "type": "Point", "coordinates": [7.6437, 11.1529] } },
+    { "type": "Feature", "properties": { "zone_id": "dept-accounting", "name": "Department of Accounting", "category": "department", "faculty": "Administration" }, "geometry": { "type": "Point", "coordinates": [7.6440, 11.1532] } },
+    { "type": "Feature", "properties": { "zone_id": "school-postgraduate-studies", "name": "School of Postgraduate Studies (SPS)", "category": "administration" }, "geometry": { "type": "Point", "coordinates": [7.6475, 11.1525] } },
+    { "type": "Feature", "properties": { "zone_id": "distance-learning-centre", "name": "Distance Learning Centre (DLC)", "category": "ict" }, "geometry": { "type": "Point", "coordinates": [7.6530, 11.1520] } },
+    { "type": "Feature", "properties": { "zone_id": "mcgowan-theatre", "name": "MacGowan Theatre", "category": "amenity" }, "geometry": { "type": "Point", "coordinates": [7.6478, 11.1521] } },
+    { "type": "Feature", "properties": { "zone_id": "convocation-square", "name": "Convocation Square", "category": "amenity" }, "geometry": { "type": "Point", "coordinates": [7.6489, 11.1514] } },
+    { "type": "Feature", "properties": { "zone_id": "intl-conference-centre", "name": "International Conference Centre", "category": "administration" }, "geometry": { "type": "Point", "coordinates": [7.6499, 11.1520] } },
+    { "type": "Feature", "properties": { "zone_id": "works-maintenance-yard", "name": "Works & Services Department (Maintenance Yard)", "category": "infrastructure" }, "geometry": { "type": "Point", "coordinates": [7.6440, 11.1535] } },
+    { "type": "Feature", "properties": { "zone_id": "fire-service-station", "name": "ABU Fire Service Station", "category": "infrastructure" }, "geometry": { "type": "Point", "coordinates": [7.6472, 11.1532] } },
+    { "type": "Feature", "properties": { "zone_id": "security-hq", "name": "ABU Security Office Headquarters", "category": "infrastructure" }, "geometry": { "type": "Point", "coordinates": [7.6515, 11.1495] } },
+    { "type": "Feature", "properties": { "zone_id": "water-treatment-plant", "name": "ABU Water Treatment Plant & Dam", "category": "infrastructure" }, "geometry": { "type": "Point", "coordinates": [7.6410, 11.1560] } },
+    { "type": "Feature", "properties": { "zone_id": "institute-agric-research", "name": "Institute for Agricultural Research (IAR)", "category": "infrastructure" }, "geometry": { "type": "Point", "coordinates": [7.6350, 11.1470] } }
   ]
 };
 

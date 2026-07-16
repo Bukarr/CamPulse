@@ -1,15 +1,44 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, Suspense } from 'react';
 import { User, Report, UserRole, ReportStatus, Technician } from './types';
-import LoginView from './components/LoginView';
-import MapComponent from './components/MapComponent';
-import ReportForm from './components/ReportForm';
-import StudentView from './components/StudentView';
-import AdminDashboard from './components/AdminDashboard';
-import TechnicianView from './components/TechnicianView';
 import BottomNav from './components/BottomNav';
-import GemmaAIWidget from './components/GemmaAIWidget';
 import { Wifi, WifiOff, LogOut, ShieldCheck, Mail, Sparkles, Database, Bell, BellRing, X, ChevronRight, Check } from 'lucide-react';
 import { Notification } from './types';
+import { syncOfflineReports } from './utils/offlineQueue';
+
+const LoginView = React.lazy(() => import('./components/LoginView'));
+const MapComponent = React.lazy(() => import('./components/MapComponent'));
+const ReportForm = React.lazy(() => import('./components/ReportForm'));
+const StudentView = React.lazy(() => import('./components/StudentView'));
+const AdminDashboard = React.lazy(() => import('./components/AdminDashboard'));
+const TechnicianView = React.lazy(() => import('./components/TechnicianView'));
+const GemmaAIWidget = React.lazy(() => import('./components/GemmaAIWidget'));
+
+function OfflineIndicator() {
+  const [online, setOnline] = useState(navigator.onLine);
+
+  useEffect(() => {
+    const handleOnline = () => setOnline(true);
+    const handleOffline = () => setOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  if (online) return null;
+
+  return (
+    <div id="global-offline-banner" className="bg-amber-500/10 border-b border-amber-500/20 text-amber-800 px-4 py-2 text-[10px] font-sans font-bold flex items-center justify-center gap-1.5 shrink-0 transition-all duration-300">
+      <span className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-ping shrink-0" />
+      <WifiOff size={11} className="text-amber-600" />
+      <span>Offline Mode Active: Changes will be stored in your offline queue and synchronized when internet returns.</span>
+    </div>
+  );
+}
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -25,6 +54,7 @@ export default function App() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [activeToast, setActiveToast] = useState<Notification | null>(null);
   const [showNotificationsPanel, setShowNotificationsPanel] = useState(false);
+  const [assigningNotifId, setAssigningNotifId] = useState<string | null>(null);
 
   // Technicians state
   const [technicians, setTechnicians] = useState<Technician[]>([]);
@@ -38,8 +68,32 @@ export default function App() {
           .then((reg) => console.log('Service Worker registered successfully!', reg.scope))
           .catch((err) => console.error('Service Worker registration failed', err));
       });
-    }
 
+      // Listen for background sync flushes from Service Worker
+      const handleMessage = (event: MessageEvent) => {
+        if (event.data && event.data.type === 'SYNC_FLUSH') {
+          console.log('[App] Received SYNC_FLUSH from Service Worker. Syncing reports...');
+          triggerOfflineSync();
+        }
+      };
+      navigator.serviceWorker.addEventListener('message', handleMessage);
+
+      // Listen for IndexedDB queue changes across forms
+      const handleQueueUpdate = () => {
+        if (navigator.onLine) {
+          triggerOfflineSync();
+        }
+      };
+      window.addEventListener('campulse-offline-queue-updated', handleQueueUpdate);
+
+      return () => {
+        navigator.serviceWorker.removeEventListener('message', handleMessage);
+        window.removeEventListener('campulse-offline-queue-updated', handleQueueUpdate);
+      };
+    }
+  }, []);
+
+  useEffect(() => {
     // Load session
     const storedUser = localStorage.getItem('campulse-user');
     const storedToken = localStorage.getItem('campulse-token');
@@ -170,49 +224,16 @@ export default function App() {
   };
 
   // The Offline Queue Syncing Engine!
-  const triggerOfflineSync = async () => {
-    const queueRaw = localStorage.getItem('campulse-offline-queue');
+  async function triggerOfflineSync() {
     const userRaw = localStorage.getItem('campulse-user');
-    
-    if (!queueRaw || !userRaw) return;
-    
-    const queue = JSON.parse(queueRaw);
+    if (!userRaw) return;
     const user = JSON.parse(userRaw);
-    
-    if (queue.length === 0) return;
 
-    setSyncStatus(`🛜 Connection restored! Syncing ${queue.length} offline report(s) with central server...`);
-    
-    try {
-      const res = await fetch('/api/reports/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          reports: queue,
-          reporter_id: user.id
-        })
-      });
-
-      if (res.ok) {
-        // Clear local queue
-        localStorage.removeItem('campulse-offline-queue');
-        setSyncStatus('🎉 Success! All cached offline reports have been synchronized with the ABU server!');
-        fetchReports();
-        
-        setTimeout(() => {
-          setSyncStatus(null);
-        }, 4000);
-      } else {
-        throw new Error('Sync endpoint rejected payload');
-      }
-    } catch (e) {
-      console.error('Offline sync failed', e);
-      setSyncStatus('⚠️ Offline sync failed. Will retry automatically when connection is stable.');
-      setTimeout(() => {
-        setSyncStatus(null);
-      }, 5000);
+    const success = await syncOfflineReports(user.id, setSyncStatus);
+    if (success) {
+      fetchReports();
     }
-  };
+  }
 
   const handleLoginSuccess = (user: User, userToken: string) => {
     setCurrentUser(user);
@@ -234,11 +255,28 @@ export default function App() {
   };
 
   // Evaluator-targeted Role Swapping
-  const handleRoleSwap = (nextRole: UserRole) => {
+  const handleRoleSwap = async (nextRole: UserRole) => {
     if (!currentUser) return;
     const updatedUser = { ...currentUser, role: nextRole };
     setCurrentUser(updatedUser);
     localStorage.setItem('campulse-user', JSON.stringify(updatedUser));
+
+    try {
+      await fetch('/api/users/role', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ role: nextRole })
+      });
+      // Refresh notifications, technicians, and reports
+      fetchNotifications();
+      fetchTechnicians();
+      fetchReports();
+    } catch (e) {
+      console.warn('Failed to sync role swap with server:', e);
+    }
   };
 
   // Upvote API call
@@ -361,7 +399,16 @@ export default function App() {
 
   // Guard routing - check login
   if (!currentUser) {
-    return <LoginView onLoginSuccess={handleLoginSuccess} />;
+    return (
+      <Suspense fallback={
+        <div className="h-full w-full bg-slate-950 flex flex-col items-center justify-center text-slate-400 font-mono text-xs">
+          <div className="w-5 h-5 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin mb-2" />
+          <span>Loading Login Portal...</span>
+        </div>
+      }>
+        <LoginView onLoginSuccess={handleLoginSuccess} />
+      </Suspense>
+    );
   }
 
   const unreadCount = notifications.filter(n => !n.read).length;
@@ -409,6 +456,9 @@ export default function App() {
           </button>
         </div>
       </header>
+
+      {/* Global Offline Banner (Non-intrusive) */}
+      <OfflineIndicator />
 
       {/* Live Push Toast Overlay */}
       {activeToast && (
@@ -486,39 +536,116 @@ export default function App() {
                     </div>
                     <p className="text-[10px] leading-relaxed mt-1">{notif.message}</p>
                     {(() => {
-                      if (currentUser?.role !== 'admin' || !notif.reference_id) return null;
+                      if (!notif.reference_id) return null;
                       const matchedReport = reports.find(r => r.id === notif.reference_id);
-                      if (!matchedReport || matchedReport.status !== 'submitted') return null;
+                      if (!matchedReport) return null;
 
                       return (
                         <div 
                           className="mt-2.5 pt-2 border-t border-dashed border-slate-200/80"
                           onClick={(e) => e.stopPropagation()}
                         >
-                          <span className="text-[8px] font-bold text-slate-500 uppercase tracking-wide block mb-1.5 font-sans">
-                            ⚙️ Assign Technician for Category ({matchedReport.category.replace('_', ' ')})
-                          </span>
-                          <div className="flex flex-wrap gap-1">
-                            {technicians.map((tech) => {
-                              const isSkillMatch = tech.skill_tags.includes(matchedReport.category);
-                              return (
+                          {/* Admin Assignment Block */}
+                          {currentUser?.role === 'admin' && matchedReport.status === 'submitted' && (
+                            <div className="space-y-2 mt-1.5">
+                              <div className="flex justify-between items-center bg-slate-50 p-1.5 rounded-lg border border-slate-100">
+                                <span className="text-[9px] font-bold text-slate-600 uppercase tracking-wide font-sans pl-1">
+                                  Category: {matchedReport.category.replace('_', ' ').toUpperCase()}
+                                </span>
+                                <span className="text-[8px] bg-amber-100 text-amber-800 font-extrabold px-1.5 py-0.5 rounded uppercase">Unassigned</span>
+                              </div>
+                              
+                              <button
+                                onClick={() => setAssigningNotifId(assigningNotifId === notif.id ? null : notif.id)}
+                                className="w-full text-center text-[10px] bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-1.5 px-3 rounded-lg shadow-xs transition-all flex items-center justify-center gap-1 cursor-pointer"
+                              >
+                                {assigningNotifId === notif.id ? '❌ Close Assignment Board' : '⚙️ Assign Technician'}
+                              </button>
+                              
+                              {assigningNotifId === notif.id && (
+                                <div className="p-2 bg-slate-50/50 rounded-lg border border-slate-200/60 space-y-2 transition-all">
+                                  <span className="text-[9px] text-slate-500 font-sans font-medium block">Select qualified technician for {matchedReport.category.replace('_', ' ')}:</span>
+                                  <div className="grid grid-cols-2 gap-1.5">
+                                    {technicians.map((tech) => {
+                                      const isSkillMatch = tech.skill_tags.includes(matchedReport.category);
+                                      return (
+                                        <button
+                                          key={tech.id}
+                                          onClick={async () => {
+                                            await handleAssignTechnician(matchedReport.id, tech.id);
+                                            setAssigningNotifId(null);
+                                          }}
+                                          className={`text-[9px] px-2.5 py-1.5 rounded-md border font-bold font-sans transition-all flex flex-col items-start gap-0.5 cursor-pointer text-left ${
+                                            isSkillMatch
+                                              ? 'bg-emerald-50 border-emerald-300 text-emerald-900 hover:bg-emerald-100'
+                                              : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                                          }`}
+                                        >
+                                          <span className="font-semibold block">{tech.name}</span>
+                                          <div className="flex items-center gap-1 mt-0.5">
+                                            <span className="text-[7px] text-slate-400">Load: {tech.current_load || 0}</span>
+                                            {isSkillMatch && (
+                                              <span className="text-[6px] bg-emerald-200/60 text-emerald-800 font-extrabold px-1 rounded-xs">Specialist</span>
+                                            )}
+                                          </div>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Technician Action Block */}
+                          {currentUser?.role === 'technician' && (
+                            <div className="flex items-center justify-between">
+                              <span className="text-[8px] font-bold text-slate-400 uppercase tracking-wide font-sans">
+                                Status: {matchedReport.status.toUpperCase()}
+                              </span>
+                              {matchedReport.status === 'assigned' && (
                                 <button
-                                  key={tech.id}
                                   onClick={async () => {
-                                    await handleAssignTechnician(matchedReport.id, tech.id);
+                                    await handleUpdateStatus(matchedReport.id, 'in_progress');
                                   }}
-                                  className={`text-[8px] px-2 py-1 rounded-lg border font-bold font-sans transition-all flex items-center gap-0.5 cursor-pointer ${
-                                    isSkillMatch
-                                      ? 'bg-emerald-600 border-emerald-600 text-white hover:bg-emerald-700'
-                                      : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                                  }`}
+                                  className="text-[9px] bg-amber-500 hover:bg-amber-600 text-white font-bold px-2.5 py-1 rounded-md shadow-xs transition-all flex items-center gap-1 cursor-pointer animate-pulse"
                                 >
-                                  {tech.name.split(' ')[0]}
-                                  {isSkillMatch && <span className="text-[7px] bg-white/20 px-0.5 rounded-sm">Match</span>}
+                                  🚀 Start Work
                                 </button>
-                              );
-                            })}
-                          </div>
+                              )}
+                              {matchedReport.status === 'in_progress' && (
+                                <button
+                                  onClick={async () => {
+                                    await handleUpdateStatus(matchedReport.id, 'resolved');
+                                  }}
+                                  className="text-[9px] bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-2.5 py-1 rounded-md shadow-xs transition-all flex items-center gap-1 cursor-pointer"
+                                >
+                                  ✅ Complete Work
+                                </button>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Student Status Indicator Block */}
+                          {currentUser?.role === 'student' && (
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[8px] font-bold text-slate-400 uppercase tracking-wide font-sans">
+                                Report State:
+                              </span>
+                              {matchedReport.status === 'submitted' && (
+                                <span className="text-[8px] bg-slate-100 text-slate-600 font-bold px-1.5 py-0.5 rounded">Pending Triage</span>
+                              )}
+                              {matchedReport.status === 'assigned' && (
+                                <span className="text-[8px] bg-blue-50 text-blue-600 border border-blue-100 font-bold px-1.5 py-0.5 rounded">Technician Dispatched</span>
+                              )}
+                              {matchedReport.status === 'in_progress' && (
+                                <span className="text-[8px] bg-amber-50 text-amber-700 border border-amber-100 font-bold px-1.5 py-0.5 rounded animate-pulse">In Progress</span>
+                              )}
+                              {matchedReport.status === 'resolved' && (
+                                <span className="text-[8px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded flex items-center gap-0.5">🎉 Resolved & Fixed</span>
+                              )}
+                            </div>
+                          )}
                         </div>
                       );
                     })()}
@@ -557,125 +684,132 @@ export default function App() {
 
       {/* Main variable Tab stage container */}
       <main className="flex-1 overflow-hidden p-4 relative">
-        {currentTab === 'map' && (
-          <div className="w-full h-full relative">
-            <MapComponent
-              reports={reports}
-              onMapClick={handleMapClick}
-              reportingCoords={reportingCoords}
-              onReportingCoordsChange={(lat, lng) => setReportingCoords({ lat, lng })}
-              selectedReport={selectedReport}
-              onSelectReport={handleSelectReport}
-            />
+        <Suspense fallback={
+          <div className="h-full w-full flex flex-col items-center justify-center text-slate-400 font-mono text-xs">
+            <div className="w-5 h-5 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin mb-2" />
+            <span>Loading view...</span>
           </div>
-        )}
-
-        {currentTab === 'report' && (
-          <div className="h-full overflow-y-auto pb-28">
-            <ReportForm
-              userId={currentUser.id}
-              reportingCoords={reportingCoords}
-              onReportingCoordsChange={(lat, lng) => setReportingCoords({ lat, lng })}
-              onSuccess={() => {
-                setReportingCoords(null);
-                setCurrentTab('workspace'); // Send them to feed to see issue
-                fetchReports();
-              }}
-              onCancel={() => {
-                setReportingCoords(null);
-                setCurrentTab('map');
-              }}
-            />
-          </div>
-        )}
-
-        {currentTab === 'workspace' && (
-          <div className="h-full">
-            {currentUser.role === 'admin' ? (
-              <AdminDashboard
+        }>
+          {currentTab === 'map' && (
+            <div className="w-full h-full relative">
+              <MapComponent
                 reports={reports}
-                onAssignTechnician={handleAssignTechnician}
-                onUpdateStatus={handleUpdateStatus}
+                onMapClick={handleMapClick}
+                reportingCoords={reportingCoords}
+                onReportingCoordsChange={(lat, lng) => setReportingCoords({ lat, lng })}
+                selectedReport={selectedReport}
+                onSelectReport={handleSelectReport}
               />
-            ) : currentUser.role === 'technician' ? (
-              <TechnicianView
-                technicianUserId={currentUser.id}
-                reports={reports}
-                onUpdateStatus={handleUpdateStatus}
-              />
-            ) : (
-              <StudentView
+            </div>
+          )}
+
+          {currentTab === 'report' && (
+            <div className="h-full overflow-y-auto pb-28">
+              <ReportForm
                 userId={currentUser.id}
-                userName={currentUser.name}
-                reports={reports}
-                onUpvote={handleUpvote}
-                onAddComment={handleAddComment}
+                reportingCoords={reportingCoords}
+                onReportingCoordsChange={(lat, lng) => setReportingCoords({ lat, lng })}
+                onSuccess={() => {
+                  setReportingCoords(null);
+                  setCurrentTab('workspace'); // Send them to feed to see issue
+                  fetchReports();
+                }}
+                onCancel={() => {
+                  setReportingCoords(null);
+                  setCurrentTab('map');
+                }}
               />
-            )}
-          </div>
-        )}
-
-        {currentTab === 'profile' && (
-          <div className="space-y-6 overflow-y-auto max-h-full pb-20 text-xs">
-            <div>
-              <h2 className="text-base font-bold text-slate-800 font-sans">My Account</h2>
-              <p className="text-[10px] text-slate-400 mt-0.5">Manage portal credentials and role permissions</p>
             </div>
+          )}
 
-            {/* Profile Card */}
-            <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-4 shadow-xs">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-full bg-slate-50 border border-slate-200/50 flex items-center justify-center text-lg font-bold">
-                  🎓
-                </div>
-                <div>
-                  <div className="font-bold text-slate-800 text-sm flex items-center gap-1.5 font-sans">
-                    {currentUser.name}
-                    <span className="bg-emerald-50 text-emerald-600 border border-emerald-100 text-[8px] uppercase px-1.5 py-0.5 rounded-md font-mono font-bold">
-                      {currentUser.role}
-                    </span>
+          {currentTab === 'workspace' && (
+            <div className="h-full">
+              {currentUser.role === 'admin' ? (
+                <AdminDashboard
+                  reports={reports}
+                  onAssignTechnician={handleAssignTechnician}
+                  onUpdateStatus={handleUpdateStatus}
+                />
+              ) : currentUser.role === 'technician' ? (
+                <TechnicianView
+                  technicianUserId={currentUser.id}
+                  reports={reports}
+                  onUpdateStatus={handleUpdateStatus}
+                />
+              ) : (
+                <StudentView
+                  userId={currentUser.id}
+                  userName={currentUser.name}
+                  reports={reports}
+                  onUpvote={handleUpvote}
+                  onAddComment={handleAddComment}
+                />
+              )}
+            </div>
+          )}
+
+          {currentTab === 'profile' && (
+            <div className="space-y-6 overflow-y-auto max-h-full pb-20 text-xs">
+              <div>
+                <h2 className="text-base font-bold text-slate-800 font-sans">My Account</h2>
+                <p className="text-[10px] text-slate-400 mt-0.5">Manage portal credentials and role permissions</p>
+              </div>
+
+              {/* Profile Card */}
+              <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-4 shadow-xs">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-full bg-slate-50 border border-slate-200/50 flex items-center justify-center text-lg font-bold">
+                    🎓
                   </div>
-                  <div className="text-slate-500 flex items-center gap-1 mt-0.5 font-medium">
-                    <Mail size={11} /> {currentUser.email}
+                  <div>
+                    <div className="font-bold text-slate-800 text-sm flex items-center gap-1.5 font-sans">
+                      {currentUser.name}
+                      <span className="bg-emerald-50 text-emerald-600 border border-emerald-100 text-[8px] uppercase px-1.5 py-0.5 rounded-md font-mono font-bold">
+                        {currentUser.role}
+                      </span>
+                    </div>
+                    <div className="text-slate-500 flex items-center gap-1 mt-0.5 font-medium">
+                      <Mail size={11} /> {currentUser.email}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-3 border-t border-slate-100 space-y-2 text-slate-500 leading-normal font-medium">
+                  <div className="flex items-center gap-1.5">
+                    <ShieldCheck size={13} className="text-emerald-600" />
+                    <span>Google SSO verified credential domain</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Database size={13} className="text-rose-500" />
+                    <span>Persistent cache available for offline viewing</span>
                   </div>
                 </div>
               </div>
 
-              <div className="pt-3 border-t border-slate-100 space-y-2 text-slate-500 leading-normal font-medium">
-                <div className="flex items-center gap-1.5">
-                  <ShieldCheck size={13} className="text-emerald-600" />
-                  <span>Google SSO verified credential domain</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <Database size={13} className="text-rose-500" />
-                  <span>Persistent cache available for offline viewing</span>
-                </div>
-              </div>
-            </div>
-
-            {/* App Settings and Info */}
-            <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3 shadow-xs">
-              <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider font-sans">📦 Progressive Web App Info</span>
-              <div className="grid grid-cols-2 gap-2 text-center text-[10px] font-mono">
-                <div className="bg-slate-50 p-2 rounded-xl border border-slate-200/40">
-                  <div className="text-slate-400 font-bold">VERSION</div>
-                  <div className="font-bold text-slate-700 mt-0.5">1.0.0 (Standalone)</div>
-                </div>
-                <div className="bg-slate-50 p-2 rounded-xl border border-slate-200/40">
-                  <div className="text-slate-400 font-bold">OFFLINE SYNC</div>
-                  <div className="font-bold text-slate-700 mt-0.5">Local Storage Cache</div>
+              {/* App Settings and Info */}
+              <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3 shadow-xs">
+                <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider font-sans">📦 Progressive Web App Info</span>
+                <div className="grid grid-cols-2 gap-2 text-center text-[10px] font-mono">
+                  <div className="bg-slate-50 p-2 rounded-xl border border-slate-200/40">
+                    <div className="text-slate-400 font-bold">VERSION</div>
+                    <div className="font-bold text-slate-700 mt-0.5">1.0.0 (Standalone)</div>
+                  </div>
+                  <div className="bg-slate-50 p-2 rounded-xl border border-slate-200/40">
+                    <div className="text-slate-400 font-bold">OFFLINE SYNC</div>
+                    <div className="font-bold text-slate-700 mt-0.5">Local Storage Cache</div>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <button
-              onClick={handleLogout}
-              className="w-full bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 font-bold py-2.5 rounded-xl flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-            >
-              <LogOut size={13} /> Log Out from Portal
-            </button>
-          </div>
-        )}
+              <button
+                onClick={handleLogout}
+                className="w-full bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 font-bold py-2.5 rounded-xl flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <LogOut size={13} /> Log Out from Portal
+              </button>
+            </div>
+          )}
+        </Suspense>
       </main>
 
       {/* Bottom Nav bar container */}
@@ -689,7 +823,9 @@ export default function App() {
       />
 
       {/* Gemma 4 AI Assistant floating interface */}
-      <GemmaAIWidget currentUser={currentUser} />
+      <Suspense fallback={null}>
+        <GemmaAIWidget currentUser={currentUser} />
+      </Suspense>
     </div>
   );
 }
