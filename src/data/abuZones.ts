@@ -139,7 +139,19 @@ export const abuGeoJson = {
     { "type": "Feature", "properties": { "zone_id": "fire-service-station", "name": "ABU Fire Service Station", "category": "infrastructure" }, "geometry": { "type": "Point", "coordinates": [7.6472, 11.1532] } },
     { "type": "Feature", "properties": { "zone_id": "security-hq", "name": "ABU Security Office Headquarters", "category": "infrastructure" }, "geometry": { "type": "Point", "coordinates": [7.6515, 11.1495] } },
     { "type": "Feature", "properties": { "zone_id": "water-treatment-plant", "name": "ABU Water Treatment Plant & Dam", "category": "infrastructure" }, "geometry": { "type": "Point", "coordinates": [7.6410, 11.1560] } },
-    { "type": "Feature", "properties": { "zone_id": "institute-agric-research", "name": "Institute for Agricultural Research (IAR)", "category": "infrastructure" }, "geometry": { "type": "Point", "coordinates": [7.6350, 11.1470] } }
+    { "type": "Feature", "properties": { "zone_id": "institute-agric-research", "name": "Institute for Agricultural Research (IAR)", "category": "infrastructure" }, "geometry": { "type": "Point", "coordinates": [7.6350, 11.1470] } },
+    { "type": "Feature", "properties": { "zone_id": "sanyaolu-lecture-theatre", "name": "Sanyaolu Lecture Theatre", "category": "amenity" }, "geometry": { "type": "Point", "coordinates": [7.6482, 11.1532] } },
+    { "type": "Feature", "properties": { "zone_id": "etf-lecture-theatre", "name": "ETF Lecture Theatre", "category": "amenity" }, "geometry": { "type": "Point", "coordinates": [7.6472, 11.1511] } },
+    { "type": "Feature", "properties": { "zone_id": "sslt-lecture-theatre", "name": "Social Science Lecture Theatre (SSLT)", "category": "amenity" }, "geometry": { "type": "Point", "coordinates": [7.6462, 11.1514] } },
+    { "type": "Feature", "properties": { "zone_id": "hayatu-lecture-theatre", "name": "Hayatu Lecture Theatre", "category": "amenity" }, "geometry": { "type": "Point", "coordinates": [7.6481, 11.1524] } },
+    { "type": "Feature", "properties": { "zone_id": "a1-a2-lecture-halls", "name": "A1/A2 Lecture Halls", "category": "amenity" }, "geometry": { "type": "Point", "coordinates": [7.6478, 11.1523] } },
+    { "type": "Feature", "properties": { "zone_id": "b1-b2-lecture-halls", "name": "B1/B2 Lecture Halls", "category": "amenity" }, "geometry": { "type": "Point", "coordinates": [7.6479, 11.1522] } },
+    { "type": "Feature", "properties": { "zone_id": "abu-bookshop-press", "name": "ABU Press & Bookshop", "category": "amenity" }, "geometry": { "type": "Point", "coordinates": [7.6491, 11.1521] } },
+    { "type": "Feature", "properties": { "zone_id": "abu-microfinance-bank", "name": "ABU Microfinance Bank", "category": "amenity" }, "geometry": { "type": "Point", "coordinates": [7.6475, 11.1538] } },
+    { "type": "Feature", "properties": { "zone_id": "north-aviation-gate", "name": "North Gate (Aviation)", "category": "gate" }, "geometry": { "type": "Point", "coordinates": [7.6415, 11.1595] } },
+    { "type": "Feature", "properties": { "zone_id": "iya-abubakar-lecture-hall", "name": "Iya Abubakar Lecture Hall", "category": "amenity" }, "geometry": { "type": "Point", "coordinates": [7.6489, 11.1520] } },
+    { "type": "Feature", "properties": { "zone_id": "naerls-centre", "name": "NAERLS Headquarters Center", "category": "infrastructure" }, "geometry": { "type": "Point", "coordinates": [7.6380, 11.1465] } },
+    { "type": "Feature", "properties": { "zone_id": "dac-centre", "name": "Division of Agricultural Colleges (DAC)", "category": "infrastructure" }, "geometry": { "type": "Point", "coordinates": [7.6365, 11.1468] } }
   ]
 };
 
