@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { User, Report, UserRole, ReportStatus } from './types';
+import { User, Report, UserRole, ReportStatus, Technician } from './types';
 import LoginView from './components/LoginView';
 import MapComponent from './components/MapComponent';
 import ReportForm from './components/ReportForm';
@@ -25,6 +25,9 @@ export default function App() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [activeToast, setActiveToast] = useState<Notification | null>(null);
   const [showNotificationsPanel, setShowNotificationsPanel] = useState(false);
+
+  // Technicians state
+  const [technicians, setTechnicians] = useState<Technician[]>([]);
 
   // Initialize: register Service Worker, load user from localStorage, setup network listeners
   useEffect(() => {
@@ -69,6 +72,7 @@ export default function App() {
     if (!currentUser) return;
 
     fetchNotifications();
+    fetchTechnicians();
 
     // Setup Server-Sent Events (SSE) stream for real-time notifications
     const eventSource = new EventSource(`/api/events?userId=${currentUser.id}`);
@@ -115,6 +119,18 @@ export default function App() {
       }
     } catch (err) {
       console.warn('[Notifications] Failed to load history.');
+    }
+  };
+
+  const fetchTechnicians = async () => {
+    try {
+      const res = await fetch('/api/technicians');
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        setTechnicians(data);
+      }
+    } catch (err) {
+      console.warn('[Technicians] Failed to load technicians list.');
     }
   };
 
@@ -469,6 +485,43 @@ export default function App() {
                       )}
                     </div>
                     <p className="text-[10px] leading-relaxed mt-1">{notif.message}</p>
+                    {(() => {
+                      if (currentUser?.role !== 'admin' || !notif.reference_id) return null;
+                      const matchedReport = reports.find(r => r.id === notif.reference_id);
+                      if (!matchedReport || matchedReport.status !== 'submitted') return null;
+
+                      return (
+                        <div 
+                          className="mt-2.5 pt-2 border-t border-dashed border-slate-200/80"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <span className="text-[8px] font-bold text-slate-500 uppercase tracking-wide block mb-1.5 font-sans">
+                            ⚙️ Assign Technician for Category ({matchedReport.category.replace('_', ' ')})
+                          </span>
+                          <div className="flex flex-wrap gap-1">
+                            {technicians.map((tech) => {
+                              const isSkillMatch = tech.skill_tags.includes(matchedReport.category);
+                              return (
+                                <button
+                                  key={tech.id}
+                                  onClick={async () => {
+                                    await handleAssignTechnician(matchedReport.id, tech.id);
+                                  }}
+                                  className={`text-[8px] px-2 py-1 rounded-lg border font-bold font-sans transition-all flex items-center gap-0.5 cursor-pointer ${
+                                    isSkillMatch
+                                      ? 'bg-emerald-600 border-emerald-600 text-white hover:bg-emerald-700'
+                                      : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  {tech.name.split(' ')[0]}
+                                  {isSkillMatch && <span className="text-[7px] bg-white/20 px-0.5 rounded-sm">Match</span>}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })()}
                     <div className="flex items-center justify-between mt-2.5 text-[9px] text-slate-400 font-mono">
                       <span>{new Date(notif.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
                       {notif.reference_id && (

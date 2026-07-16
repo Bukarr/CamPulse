@@ -554,7 +554,8 @@ async function startServer() {
   function getAuthenticatedUser(req: express.Request) {
     const authHeader = req.headers.authorization;
     if (!authHeader) return null;
-    const userId = authHeader.replace('Bearer session-jwt-', '').split('-')[0];
+    const parts = authHeader.replace('Bearer session-jwt-', '').split('-');
+    const userId = parts.length > 1 ? parts.slice(0, -1).join('-') : parts[0];
     return db.users.find((u: User) => u.id === userId) || null;
   }
 
@@ -762,7 +763,8 @@ async function startServer() {
   app.get('/api/users/me', (req, res) => {
     const authHeader = req.headers.authorization;
     if (!authHeader) return res.status(401).json({ error: 'Unauthorized' });
-    const userId = authHeader.replace('Bearer session-jwt-', '').split('-')[0];
+    const parts = authHeader.replace('Bearer session-jwt-', '').split('-');
+    const userId = parts.length > 1 ? parts.slice(0, -1).join('-') : parts[0];
     const user = db.users.find((u: User) => u.id === userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
     res.json(user);
@@ -1403,6 +1405,20 @@ Output your decision as a strict JSON object (no markdown, no quotes, just raw J
       created_at: new Date().toISOString()
     }, 'admin');
 
+    // Also notify the reporting Student (direct role-based routing)
+    if (reporter_id) {
+      sendLiveNotification({
+        id: `notif-${Date.now()}-student-submit`,
+        user_id: reporter_id,
+        title: '📝 Report Successfully Logged',
+        message: `Your report for "${category.replace('_', ' ').toUpperCase()}" has been received and is currently under administrative review.`,
+        type: 'status_change',
+        reference_id: newReport.id,
+        read: false,
+        created_at: new Date().toISOString()
+      });
+    }
+
     // Also notify Technicians if priority is high
     if (priority_score >= 4) {
       sendLiveNotification({
@@ -1653,6 +1669,20 @@ Output your decision as a strict JSON object (no markdown, no quotes, just raw J
       read: false,
       created_at: new Date().toISOString()
     });
+
+    // Notify the Student who filed the report
+    if (report.reporter_id) {
+      sendLiveNotification({
+        id: `notif-${Date.now()}-assign-student`,
+        user_id: report.reporter_id,
+        title: '🛠️ Technician Dispatched',
+        message: `Technician ${technician.name} has been assigned to resolve your report: "${report.description.substring(0, 60)}..."`,
+        type: 'status_change',
+        reference_id: report.id,
+        read: false,
+        created_at: new Date().toISOString()
+      });
+    }
 
     res.json({ report, assignment });
   });
