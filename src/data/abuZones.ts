@@ -99,8 +99,6 @@ export const abuGeoJson = {
     { "type": "Feature", "properties": { "zone_id": "dept-pharm-medicinal-chemistry", "name": "Department of Pharmaceutical and Medicinal Chemistry", "category": "department", "faculty": "Pharmaceutical Sciences" }, "geometry": { "type": "Point", "coordinates": [7.6467, 11.1460] } },
     { "type": "Feature", "properties": { "zone_id": "dept-pharmaceutics-pharm-microbiology", "name": "Department of Pharmaceutics and Pharmaceutical Microbiology", "category": "department", "faculty": "Pharmaceutical Sciences" }, "geometry": { "type": "Point", "coordinates": [7.6463, 11.1456] } },
     { "type": "Feature", "properties": { "zone_id": "dept-pharmacology-clinical-pharmacy", "name": "Department of Pharmacology and Clinical Pharmacy", "category": "department", "faculty": "Pharmaceutical Sciences" }, "geometry": { "type": "Point", "coordinates": [7.6468, 11.1461] } },
-
-<<<<<<< HEAD
     { "type": "Feature", "properties": { "zone_id": "hall-alexander", "name": "Alexander Hall (female)", "category": "hostel" }, "geometry": { "type": "Point", "coordinates": [7.6532348, 11.1525749] } },
     { "type": "Feature", "properties": { "zone_id": "hall-danfodio", "name": "Danfodio Hall (male)", "category": "hostel" }, "geometry": { "type": "Point", "coordinates": [7.6463100, 11.1547047] } },
     { "type": "Feature", "properties": { "zone_id": "hall-icsa", "name": "ICSA Hall (male)", "category": "hostel" }, "geometry": { "type": "Point", "coordinates": [7.6542321, 11.1553571] } },
@@ -110,7 +108,6 @@ export const abuGeoJson = {
     { "type": "Feature", "properties": { "zone_id": "hall-ribadu", "name": "Ribadu Hall (female)", "category": "hostel" }, "geometry": { "type": "Point", "coordinates": [7.6532348, 11.1525749] } },
     { "type": "Feature", "properties": { "zone_id": "hall-suleiman", "name": "Suleiman Hall (female)", "category": "hostel" }, "geometry": { "type": "Point", "coordinates": [7.6530556, 11.1538889] } },
     { "type": "Feature", "properties": { "zone_id": "hall-ramat", "name": "Ramat Hostel (female)", "category": "hostel" }, "geometry": { "type": "Point", "coordinates": [7.6487773, 11.1486063] } },
-=======
     { "type": "Feature", "properties": { "zone_id": "fac-basic-clinical-sciences", "name": "Faculty of Basic Clinical Sciences, College of Medical Sciences", "category": "faculty" }, "geometry": { "type": "Point", "coordinates": [7.6438, 11.1565] } },
     { "type": "Feature", "properties": { "zone_id": "dept-pathology", "name": "Department of Pathology, College of Medical Sciences", "category": "department", "faculty": "Basic Clinical Sciences" }, "geometry": { "type": "Point", "coordinates": [7.6439, 11.1566] } },
     { "type": "Feature", "properties": { "zone_id": "dept-chemical-pathology", "name": "Department of Chemical Pathology, College of Medical Sciences", "category": "department", "faculty": "Basic Clinical Sciences" }, "geometry": { "type": "Point", "coordinates": [7.6437, 11.1564] } },
@@ -127,7 +124,7 @@ export const abuGeoJson = {
     { "type": "Feature", "properties": { "zone_id": "hall-ribadu", "name": "Ribadu Hall (female)", "category": "hostel" }, "geometry": { "type": "Point", "coordinates": [7.6465, 11.1540] } },
     { "type": "Feature", "properties": { "zone_id": "hall-suleiman", "name": "Suleiman Hall (female)", "category": "hostel" }, "geometry": { "type": "Point", "coordinates": [7.6453, 11.1551] } },
     { "type": "Feature", "properties": { "zone_id": "hall-ramat", "name": "Ramat Hostel (female)", "category": "hostel" }, "geometry": { "type": "Point", "coordinates": [7.6457, 11.1546] } },
->>>>>>> refs/remotes/origin/main
+
 
     { "type": "Feature", "properties": { "zone_id": "community-market", "name": "ABU Community Market", "category": "amenity" }, "geometry": { "type": "Point", "coordinates": [7.6509284, 11.1535396] } },
     { "type": "Feature", "properties": { "zone_id": "samaru-main-gate", "name": "Samaru Main Gate", "category": "gate" }, "geometry": { "type": "Point", "coordinates": [7.6525, 11.1491] } },
