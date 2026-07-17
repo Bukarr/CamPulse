@@ -9,6 +9,7 @@ interface StudentViewProps {
   onUpvote: (reportId: string) => Promise<void>;
   onAddComment: (reportId: string, text: string) => Promise<void>;
   onDeleteReport?: (reportId: string) => Promise<boolean>;
+  onRefresh?: () => Promise<void>;
 }
 
 const CATEGORY_ICONS: Record<string, string> = {
@@ -27,7 +28,7 @@ const STATUS_CLASSES: Record<ReportStatus, string> = {
   resolved: 'bg-emerald-50 text-emerald-600 border border-emerald-100'
 };
 
-export default function StudentView({ userId, userName, reports, onUpvote, onAddComment, onDeleteReport }: StudentViewProps) {
+export default function StudentView({ userId, userName, reports, onUpvote, onAddComment, onDeleteReport, onRefresh }: StudentViewProps) {
   const [filter, setFilter] = useState<'all' | 'mine'>('all');
   const [categoryFilter, setCategoryFilter] = useState<ReportCategory | 'all'>('all');
   const [urgencyFilter, setUrgencyFilter] = useState<number | 'all'>('all');
@@ -37,6 +38,43 @@ export default function StudentView({ userId, userName, reports, onUpvote, onAdd
   const [newComment, setNewComment] = useState('');
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
+
+  // Pull-to-Refresh States
+  const [touchStart, setTouchStart] = useState<number | null>(null);
+  const [pullOffset, setPullOffset] = useState<number>(0);
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+
+  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    const element = e.currentTarget;
+    if (element.scrollTop === 0 && onRefresh) {
+      setTouchStart(e.touches[0].clientY);
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (touchStart === null) return;
+    const currentY = e.touches[0].clientY;
+    const deltaY = currentY - touchStart;
+    if (deltaY > 0) {
+      setPullOffset(Math.min(deltaY * 0.4, 70));
+    }
+  };
+
+  const handleTouchEnd = async () => {
+    if (touchStart === null) return;
+    setTouchStart(null);
+    if (pullOffset >= 45 && onRefresh) {
+      setIsRefreshing(true);
+      try {
+        await onRefresh();
+      } catch (err) {
+        console.warn('Failed to manual-refresh via pull-down:', err);
+      } finally {
+        setIsRefreshing(false);
+      }
+    }
+    setPullOffset(0);
+  };
 
   // Monitor network status
   useEffect(() => {
@@ -107,7 +145,31 @@ export default function StudentView({ userId, userName, reports, onUpvote, onAdd
     });
 
   return (
-    <div id="student-workspace" className="space-y-4 overflow-y-auto max-h-full pb-24 pr-1">
+    <div 
+      id="student-workspace" 
+      className="space-y-4 overflow-y-auto max-h-full pb-24 pr-1 relative select-none"
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+    >
+      {/* Pull down refreshing indicator bar */}
+      {pullOffset > 0 && (
+        <div 
+          style={{ height: `${pullOffset}px`, opacity: Math.min(pullOffset / 45, 1) }}
+          className="overflow-hidden flex items-center justify-center transition-all duration-100 bg-emerald-50/40 border border-emerald-100/60 rounded-xl text-[10px] font-sans font-bold text-emerald-700 gap-1.5 shrink-0"
+        >
+          <div className={`w-3.5 h-3.5 border border-emerald-600 border-t-transparent rounded-full ${pullOffset >= 45 ? 'animate-spin' : ''}`} style={{ borderWidth: '1.5px', borderRightColor: 'transparent' }} />
+          <span>{pullOffset >= 45 ? 'Release to sync feed...' : 'Pull down to refresh'}</span>
+        </div>
+      )}
+
+      {isRefreshing && (
+        <div className="h-10 flex items-center justify-center bg-emerald-50 border border-emerald-100 text-[10px] font-sans font-bold text-emerald-800 gap-1.5 rounded-xl animate-pulse shrink-0">
+          <div className="w-3.5 h-3.5 border border-emerald-600 border-t-transparent rounded-full animate-spin" style={{ borderWidth: '1.5px', borderRightColor: 'transparent' }} />
+          <span>Refreshing and synchronizing with database...</span>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

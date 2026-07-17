@@ -6,9 +6,10 @@ interface TechnicianViewProps {
   technicianUserId: string;
   reports: Report[];
   onUpdateStatus: (reportId: string, status: ReportStatus, commentText?: string, photoProof?: string) => Promise<void>;
+  onRefresh?: () => Promise<void>;
 }
 
-export default function TechnicianView({ technicianUserId, reports, onUpdateStatus }: TechnicianViewProps) {
+export default function TechnicianView({ technicianUserId, reports, onUpdateStatus, onRefresh }: TechnicianViewProps) {
   const [assignedReports, setAssignedReports] = useState<Report[]>([]);
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
   const [activeDetailReport, setActiveDetailReport] = useState<Report | null>(null);
@@ -16,6 +17,43 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
   const [commentText, setCommentText] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Pull-to-Refresh States
+  const [touchStart, setTouchStart] = useState<number | null>(null);
+  const [pullOffset, setPullOffset] = useState<number>(0);
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+
+  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    const element = e.currentTarget;
+    if (element.scrollTop === 0 && onRefresh) {
+      setTouchStart(e.touches[0].clientY);
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (touchStart === null) return;
+    const currentY = e.touches[0].clientY;
+    const deltaY = currentY - touchStart;
+    if (deltaY > 0) {
+      setPullOffset(Math.min(deltaY * 0.4, 70));
+    }
+  };
+
+  const handleTouchEnd = async () => {
+    if (touchStart === null) return;
+    setTouchStart(null);
+    if (pullOffset >= 45 && onRefresh) {
+      setIsRefreshing(true);
+      try {
+        await onRefresh();
+      } catch (err) {
+        console.warn('Failed to manual-refresh via pull-down:', err);
+      } finally {
+        setIsRefreshing(false);
+      }
+    }
+    setPullOffset(0);
+  };
 
   useEffect(() => {
     fetchAssignedQueue();
@@ -112,7 +150,31 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
   };
 
   return (
-    <div id="technician-queue-view" className="space-y-5 overflow-y-auto max-h-full pb-20 pr-1 select-none">
+    <div 
+      id="technician-queue-view" 
+      className="space-y-5 overflow-y-auto max-h-full pb-20 pr-1 select-none relative"
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+    >
+      {/* Pull down refreshing indicator bar */}
+      {pullOffset > 0 && (
+        <div 
+          style={{ height: `${pullOffset}px`, opacity: Math.min(pullOffset / 45, 1) }}
+          className="overflow-hidden flex items-center justify-center transition-all duration-100 bg-emerald-50/40 border border-emerald-100/60 rounded-xl text-[10px] font-sans font-bold text-emerald-700 gap-1.5 shrink-0"
+        >
+          <div className={`w-3.5 h-3.5 border border-emerald-600 border-t-transparent rounded-full ${pullOffset >= 45 ? 'animate-spin' : ''}`} style={{ borderWidth: '1.5px', borderRightColor: 'transparent' }} />
+          <span>{pullOffset >= 45 ? 'Release to sync queue...' : 'Pull down to refresh'}</span>
+        </div>
+      )}
+
+      {isRefreshing && (
+        <div className="h-10 flex items-center justify-center bg-emerald-50 border border-emerald-100 text-[10px] font-sans font-bold text-emerald-800 gap-1.5 rounded-xl animate-pulse shrink-0">
+          <div className="w-3.5 h-3.5 border border-emerald-600 border-t-transparent rounded-full animate-spin" style={{ borderWidth: '1.5px', borderRightColor: 'transparent' }} />
+          <span>Refreshing and synchronizing with database...</span>
+        </div>
+      )}
+
       {/* Header */}
       <div>
         <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2 font-sans">

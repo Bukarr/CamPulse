@@ -43,7 +43,14 @@ function OfflineIndicator() {
 export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
-  const [reports, setReports] = useState<Report[]>([]);
+  const [reports, setReports] = useState<Report[]>(() => {
+    try {
+      const cached = localStorage.getItem('campulse-cached-reports');
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
   const [currentTab, setCurrentTab] = useState<'map' | 'report' | 'workspace' | 'profile'>('map');
   const [reportingCoords, setReportingCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
@@ -227,6 +234,11 @@ export default function App() {
       const data = await res.json();
       if (Array.isArray(data)) {
         setReports(data);
+        try {
+          localStorage.setItem('campulse-cached-reports', JSON.stringify(data));
+        } catch (e) {
+          console.warn('Failed to write reports cache to localStorage:', e);
+        }
       }
     } catch (err) {
       console.warn('Failed to load active reports (running offline mode).');
@@ -292,34 +304,47 @@ export default function App() {
   // Upvote API call
   const handleUpvote = async (reportId: string) => {
     if (!currentUser) return;
+
+    // Save previous state for potential rollback
+    const previousReports = [...reports];
+
+    // 1. Instantly perform optimistic update on local state
+    setReports(prev => prev.map(r => {
+      if (r.id === reportId) {
+        const upvotedBy = r.upvoted_by || [];
+        const idx = upvotedBy.indexOf(currentUser.id);
+        let newUpvotes = r.upvotes;
+        let newUpvotedBy = [...upvotedBy];
+        if (idx > -1) {
+          newUpvotedBy.splice(idx, 1);
+          newUpvotes = Math.max(0, newUpvotes - 1);
+        } else {
+          newUpvotedBy.push(currentUser.id);
+          newUpvotes += 1;
+        }
+        return { ...r, upvotes: newUpvotes, upvoted_by: newUpvotedBy };
+      }
+      return r;
+    }));
+
     try {
       const res = await fetch(`/api/reports/${reportId}/upvote`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_id: currentUser.id })
       });
-      if (res.ok) {
-        fetchReports();
+      if (!res.ok) {
+        // Rollback on error
+        setReports(previousReports);
+      } else {
+        // Silently fetch and update reports in the background to ensure data alignment without blocking UI
+        const data = await res.json();
+        if (data && data.report) {
+          setReports(prev => prev.map(r => r.id === reportId ? { ...r, ...data.report } : r));
+        }
       }
     } catch (e) {
-      // Local optimistic update for offline support
-      setReports(prev => prev.map(r => {
-        if (r.id === reportId) {
-          const upvotedBy = r.upvoted_by || [];
-          const idx = upvotedBy.indexOf(currentUser.id);
-          let newUpvotes = r.upvotes;
-          let newUpvotedBy = [...upvotedBy];
-          if (idx > -1) {
-            newUpvotedBy.splice(idx, 1);
-            newUpvotes = Math.max(0, newUpvotes - 1);
-          } else {
-            newUpvotedBy.push(currentUser.id);
-            newUpvotes += 1;
-          }
-          return { ...r, upvotes: newUpvotes, upvoted_by: newUpvotedBy };
-        }
-        return r;
-      }));
+      console.warn('[Upvote] Relying on optimistic state due to network/offline mode:', e);
     }
   };
 
@@ -347,6 +372,12 @@ export default function App() {
 
   // Admin Assignment API call
   const handleAssignTechnician = async (reportId: string, technicianId: string) => {
+    // Save previous state for rollback
+    const previousReports = [...reports];
+
+    // Optimistically update status to 'assigned'
+    setReports(prev => prev.map(r => r.id === reportId ? { ...r, status: 'assigned' } : r));
+
     try {
       const res = await fetch(`/api/reports/${reportId}/assign`, {
         method: 'POST',
@@ -357,18 +388,33 @@ export default function App() {
         body: JSON.stringify({ technician_id: technicianId })
       });
       if (res.ok) {
-        fetchReports();
+        const data = await res.json();
+        if (data && data.report) {
+          setReports(prev => prev.map(r => r.id === reportId ? { ...r, ...data.report } : r));
+        } else {
+          fetchReports();
+        }
       } else {
+        // Rollback on server error
+        setReports(previousReports);
         const d = await res.json();
         alert(d.error || 'Failed to assign technician');
       }
     } catch (e) {
+      // Rollback on network failure
+      setReports(previousReports);
       alert('Error updating assignment. Try again once online.');
     }
   };
 
   // Status Change API call
   const handleUpdateStatus = async (reportId: string, status: ReportStatus, commentText?: string, photoProof?: string) => {
+    // Save previous state for rollback
+    const previousReports = [...reports];
+
+    // Optimistically update report status immediately
+    setReports(prev => prev.map(r => r.id === reportId ? { ...r, status } : r));
+
     try {
       const res = await fetch(`/api/reports/${reportId}/status`, {
         method: 'PUT',
@@ -384,12 +430,21 @@ export default function App() {
         })
       });
       if (res.ok) {
-        fetchReports();
+        const updatedReport = await res.json();
+        if (updatedReport && updatedReport.id) {
+          setReports(prev => prev.map(r => r.id === reportId ? { ...r, ...updatedReport } : r));
+        } else {
+          fetchReports();
+        }
       } else {
+        // Rollback on server error
+        setReports(previousReports);
         const d = await res.json();
         alert(d.error || 'Failed to update status');
       }
     } catch (e) {
+      // Rollback on network failure
+      setReports(previousReports);
       alert('Error updating status. Connection unavailable.');
     }
   };
@@ -757,12 +812,15 @@ export default function App() {
                   reports={reports}
                   onAssignTechnician={handleAssignTechnician}
                   onUpdateStatus={handleUpdateStatus}
+                  technicians={technicians}
+                  onRegisterTechnician={(newTech) => setTechnicians(prev => [...prev, newTech])}
                 />
               ) : currentUser.role === 'technician' ? (
                 <TechnicianView
                   technicianUserId={currentUser.id}
                   reports={reports}
                   onUpdateStatus={handleUpdateStatus}
+                  onRefresh={fetchReports}
                 />
               ) : (
                 <StudentView
@@ -771,6 +829,7 @@ export default function App() {
                   reports={reports}
                   onUpvote={handleUpvote}
                   onAddComment={handleAddComment}
+                  onRefresh={fetchReports}
                 />
               )}
             </div>

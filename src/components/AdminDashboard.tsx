@@ -17,6 +17,8 @@ interface AdminDashboardProps {
   reports: Report[];
   onAssignTechnician: (reportId: string, technicianId: string) => Promise<void>;
   onUpdateStatus: (reportId: string, status: ReportStatus) => Promise<void>;
+  technicians?: Technician[];
+  onRegisterTechnician?: (newTech: Technician) => void;
 }
 
 const CATEGORY_LABELS: Record<ReportCategory, string> = {
@@ -43,8 +45,14 @@ const PRIORITY_COLORS: Record<number, string> = {
   5: 'bg-rose-50 text-rose-600 border-rose-200/60 shadow-xs animate-pulse'
 };
 
-export default function AdminDashboard({ reports, onAssignTechnician, onUpdateStatus }: AdminDashboardProps) {
-  const [technicians, setTechnicians] = useState<Technician[]>([]);
+export default function AdminDashboard({ 
+  reports, 
+  onAssignTechnician, 
+  onUpdateStatus,
+  technicians: propTechnicians = [],
+  onRegisterTechnician
+}: AdminDashboardProps) {
+  const [technicians, setTechnicians] = useState<Technician[]>(propTechnicians);
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<ReportStatus | 'all'>('all');
@@ -55,6 +63,18 @@ export default function AdminDashboard({ reports, onAssignTechnician, onUpdateSt
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [stats, setStats] = useState<any>({ total: 0, resolved: 0, open: 0, avgResolutionTimeHours: 24 });
   const [assigningId, setAssigningId] = useState<string | null>(null);
+  const [pendingStatusUpdates, setPendingStatusUpdates] = useState<Record<string, boolean>>({});
+
+  // Sync technicians prop with local state instantly
+  useEffect(() => {
+    if (propTechnicians && propTechnicians.length > 0) {
+      setTechnicians(propTechnicians);
+    }
+  }, [propTechnicians]);
+
+  // Synchronous, instantly calculated counts from reports prop in client memory
+  const activeTicketsCount = reports.filter(r => r.status !== 'resolved').length;
+  const resolvedTicketsCount = reports.filter(r => r.status === 'resolved').length;
 
   // AI triage summary states
   const [triageSummary, setTriageSummary] = useState<string>('');
@@ -100,6 +120,12 @@ export default function AdminDashboard({ reports, onAssignTechnician, onUpdateSt
       }
 
       setTechRegSuccess(`Successfully registered ${newTechName} as an authorized campus technician.`);
+      if (onRegisterTechnician && data.technician) {
+        onRegisterTechnician(data.technician);
+      } else {
+        // Fallback local update if parent callback isn't registered
+        setTechnicians(prev => [...prev, data.technician]);
+      }
       setNewTechName('');
       setNewTechEmail('');
       setNewTechSkills([]);
@@ -179,6 +205,7 @@ export default function AdminDashboard({ reports, onAssignTechnician, onUpdateSt
   const handleAssignment = async (techId: string) => {
     if (!selectedReport) return;
     setAssigningId(techId);
+    setPendingStatusUpdates(prev => ({ ...prev, [selectedReport.id]: true }));
     try {
       await onAssignTechnician(selectedReport.id, techId);
       setSelectedReport(null);
@@ -187,6 +214,30 @@ export default function AdminDashboard({ reports, onAssignTechnician, onUpdateSt
       console.error(err);
     } finally {
       setAssigningId(null);
+      setPendingStatusUpdates(prev => {
+        const copy = { ...prev };
+        delete copy[selectedReport.id];
+        return copy;
+      });
+    }
+  };
+
+  const handleStatusChange = async (reportId: string, status: ReportStatus) => {
+    setPendingStatusUpdates(prev => ({ ...prev, [reportId]: true }));
+    // Optimistically update selected report status in case modal stays open
+    if (selectedReport && selectedReport.id === reportId) {
+      setSelectedReport(prev => prev ? { ...prev, status } : null);
+    }
+    try {
+      await onUpdateStatus(reportId, status);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setPendingStatusUpdates(prev => {
+        const copy = { ...prev };
+        delete copy[reportId];
+        return copy;
+      });
     }
   };
 
@@ -270,7 +321,7 @@ export default function AdminDashboard({ reports, onAssignTechnician, onUpdateSt
           <div className="text-slate-400 text-[9px] uppercase font-bold flex items-center gap-1 tracking-wider">
             <AlertTriangle size={11} className="text-amber-500" /> Active Tickets
           </div>
-          <div className="text-xl font-bold mt-1 text-slate-800">{stats.open}</div>
+          <div className="text-xl font-bold mt-1 text-slate-800">{activeTicketsCount}</div>
           <div className="text-[9px] text-slate-400 mt-0.5">Awaiting assignment</div>
         </div>
         
@@ -278,7 +329,7 @@ export default function AdminDashboard({ reports, onAssignTechnician, onUpdateSt
           <div className="text-slate-400 text-[9px] uppercase font-bold flex items-center gap-1 tracking-wider">
             <CheckSquare size={11} className="text-emerald-500" /> Resolved Tickets
           </div>
-          <div className="text-xl font-bold mt-1 text-slate-800">{stats.resolved}</div>
+          <div className="text-xl font-bold mt-1 text-slate-800">{resolvedTicketsCount}</div>
           <div className="text-[9px] text-slate-400 mt-0.5">Completed recently</div>
         </div>
 
@@ -670,14 +721,21 @@ export default function AdminDashboard({ reports, onAssignTechnician, onUpdateSt
                     </div>
                     <div className="flex items-center gap-2.5">
                       <span className="font-semibold text-slate-500">🔺 {report.upvotes} upvotes</span>
-                      <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold uppercase ${
-                        report.status === 'resolved' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' :
-                        report.status === 'in_progress' ? 'bg-indigo-50 text-indigo-600 border border-indigo-100' :
-                        report.status === 'assigned' ? 'bg-amber-50 text-amber-600 border border-amber-100' :
-                        'bg-rose-50 text-rose-600 border border-rose-100'
-                      }`}>
-                        {STATUS_LABELS[report.status]}
-                      </span>
+                      {pendingStatusUpdates[report.id] ? (
+                        <span className="flex items-center gap-1.5 text-[8px] bg-slate-50 text-slate-500 border border-slate-200 px-1.5 py-0.5 rounded uppercase font-bold animate-pulse">
+                          <span className="w-1.5 h-1.5 border-t border-slate-500 rounded-full animate-spin shrink-0" style={{ borderRightColor: 'transparent', borderWidth: '1.5px' }} />
+                          Updating...
+                        </span>
+                      ) : (
+                        <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold uppercase ${
+                          report.status === 'resolved' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' :
+                          report.status === 'in_progress' ? 'bg-indigo-50 text-indigo-600 border border-indigo-100' :
+                          report.status === 'assigned' ? 'bg-amber-50 text-amber-600 border border-amber-100' :
+                          'bg-rose-50 text-rose-600 border border-rose-100'
+                        }`}>
+                          {STATUS_LABELS[report.status]}
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -830,16 +888,18 @@ export default function AdminDashboard({ reports, onAssignTechnician, onUpdateSt
                 </div>
                 <div className="flex gap-2">
                   <button
-                    onClick={() => onUpdateStatus(selectedReport.id, 'in_progress')}
-                    className="bg-indigo-50 hover:bg-indigo-100 text-indigo-600 border border-indigo-100 text-xs py-2 px-3 rounded-xl flex-1 font-bold transition-all cursor-pointer"
+                    disabled={pendingStatusUpdates[selectedReport.id]}
+                    onClick={() => handleStatusChange(selectedReport.id, 'in_progress')}
+                    className="bg-indigo-50 hover:bg-indigo-100 disabled:bg-slate-50 disabled:text-slate-400 text-indigo-600 border border-indigo-100 text-xs py-2 px-3 rounded-xl flex-1 font-bold transition-all cursor-pointer animate-fade-in"
                   >
-                    Set In-Progress
+                    {pendingStatusUpdates[selectedReport.id] ? 'Updating...' : 'Set In-Progress'}
                   </button>
                   <button
-                    onClick={() => onUpdateStatus(selectedReport.id, 'resolved')}
-                    className="bg-emerald-50 hover:bg-emerald-100 text-emerald-600 border border-emerald-100 text-xs py-2 px-3 rounded-xl flex-1 font-bold transition-all cursor-pointer"
+                    disabled={pendingStatusUpdates[selectedReport.id]}
+                    onClick={() => handleStatusChange(selectedReport.id, 'resolved')}
+                    className="bg-emerald-50 hover:bg-emerald-100 disabled:bg-slate-50 disabled:text-slate-400 text-emerald-600 border border-emerald-100 text-xs py-2 px-3 rounded-xl flex-1 font-bold transition-all cursor-pointer animate-fade-in"
                   >
-                    Set Resolved
+                    {pendingStatusUpdates[selectedReport.id] ? 'Updating...' : 'Set Resolved'}
                   </button>
                 </div>
               </div>
