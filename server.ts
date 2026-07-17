@@ -541,7 +541,9 @@ async function startServer() {
     const authHeader = req.headers.authorization;
     if (!authHeader) return null;
     const parts = authHeader.replace('Bearer session-jwt-', '').split('-');
-    const userId = parts.length > 1 ? parts.slice(0, -1).join('-') : parts[0];
+    const lastPart = parts[parts.length - 1];
+    const hasTimestamp = parts.length > 1 && !isNaN(Number(lastPart)) && lastPart.length >= 10;
+    const userId = hasTimestamp ? parts.slice(0, -1).join('-') : parts.join('-');
     return db.users.find((u: User) => u.id === userId) || null;
   }
 
@@ -798,7 +800,9 @@ async function startServer() {
     const authHeader = req.headers.authorization;
     if (!authHeader) return res.status(401).json({ error: 'Unauthorized' });
     const parts = authHeader.replace('Bearer session-jwt-', '').split('-');
-    const userId = parts.length > 1 ? parts.slice(0, -1).join('-') : parts[0];
+    const lastPart = parts[parts.length - 1];
+    const hasTimestamp = parts.length > 1 && !isNaN(Number(lastPart)) && lastPart.length >= 10;
+    const userId = hasTimestamp ? parts.slice(0, -1).join('-') : parts.join('-');
     const user = db.users.find((u: User) => u.id === userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
     res.json(user);
@@ -809,7 +813,9 @@ async function startServer() {
     const authHeader = req.headers.authorization;
     if (!authHeader) return res.status(401).json({ error: 'Unauthorized' });
     const parts = authHeader.replace('Bearer session-jwt-', '').split('-');
-    const userId = parts.length > 1 ? parts.slice(0, -1).join('-') : parts[0];
+    const lastPart = parts[parts.length - 1];
+    const hasTimestamp = parts.length > 1 && !isNaN(Number(lastPart)) && lastPart.length >= 10;
+    const userId = hasTimestamp ? parts.slice(0, -1).join('-') : parts.join('-');
     const { role } = req.body;
     if (!role) return res.status(400).json({ error: 'Role is required' });
 
@@ -855,7 +861,9 @@ async function startServer() {
         console.log('[PostgreSQL] Querying reports directly from DB...');
         let sql = `
           SELECT r.*, 
-            (SELECT COUNT(*)::int FROM comments WHERE report_id = r.id) as comments_count
+            (SELECT COUNT(*)::int FROM comments WHERE report_id = r.id) as comments_count,
+            (SELECT technician_id FROM assignments WHERE report_id = r.id AND resolved_at IS NULL ORDER BY assigned_at DESC LIMIT 1) AS assigned_technician_id,
+            (SELECT technician_name FROM assignments WHERE report_id = r.id AND resolved_at IS NULL ORDER BY assigned_at DESC LIMIT 1) AS assigned_technician_name
           FROM reports r
           WHERE 1=1
         `;
@@ -910,12 +918,17 @@ async function startServer() {
 
     let filtered = db.reports.map((r: Report) => {
       const commentsCount = commentsCountMap[r.id] || 0;
+      const activeAssignment = db.assignments ? db.assignments.find((a: any) => a.report_id === r.id && !a.resolved_at) : null;
+      const assigned_technician_id = activeAssignment ? activeAssignment.technician_id : undefined;
+      const assigned_technician_name = activeAssignment ? activeAssignment.technician_name : undefined;
       // Urgency is priority_score (1-5), Engagement is upvotes, complaints is comments_count
       const gemmaScore = (r.priority_score * 15) + (r.upvotes * 5) + (commentsCount * 3);
       return {
         ...r,
         comments_count: commentsCount,
-        gemma_rank_score: gemmaScore
+        gemma_rank_score: gemmaScore,
+        assigned_technician_id,
+        assigned_technician_name
       };
     });
 
@@ -2608,7 +2621,7 @@ GUIDELINES FOR ANSWERING:
 - Use the provided DATABASE RECONSTRUCTED CONTEXT below to answer questions about specific ticket statuses or logged issues. If no matching information is found, kindly guide them to the "Report" tab to file a new ticket.`;
 
       if (systemPrompt) {
-        systemInstruction = `${systemPrompt}\n\n${systemInstruction}`;
+        systemInstruction = `${systemPrompt}\n\nPrimary System Instructions:\n${systemInstruction}`;
       }
 
       const contextText = retrievedReports.length > 0 

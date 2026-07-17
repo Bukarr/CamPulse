@@ -3,7 +3,7 @@ import { User, Report, UserRole, ReportStatus, Technician } from './types';
 import BottomNav from './components/BottomNav';
 import { Wifi, WifiOff, LogOut, ShieldCheck, Mail, Sparkles, Database, Bell, BellRing, X, ChevronRight, Check } from 'lucide-react';
 import { Notification } from './types';
-import { syncOfflineReports } from './utils/offlineQueue';
+import { syncOfflineReports, syncOfflineActions, addOfflineAction } from './utils/offlineQueue';
 
 const LoginView = React.lazy(() => import('./components/LoginView'));
 const MapComponent = React.lazy(() => import('./components/MapComponent'));
@@ -143,12 +143,11 @@ export default function App() {
         const notif = JSON.parse(event.data);
         console.log('[SSE] Received live real-time notification:', notif);
 
-        // Filter out 'dispatched' status notifications or non-matching direct target IDs for technician dashboard
+        // Filter out notifications intended for other users, but still refresh reports feed to keep state in sync
         if (currentUser?.role === 'technician') {
-          const titleLower = (notif.title || '').toLowerCase();
-          const msgLower = (notif.message || '').toLowerCase();
-          if (titleLower.includes('dispatched') || msgLower.includes('dispatched') || (notif.user_id && notif.user_id !== currentUser.id)) {
-            console.log('[SSE] Ignored student dispatched notification for technician:', notif.id);
+          if (notif.user_id && notif.user_id !== currentUser.id) {
+            console.log('[SSE] Refreshing reports for other user notification:', notif.id);
+            fetchReports();
             return;
           }
         }
@@ -156,16 +155,23 @@ export default function App() {
         // Add to state list
         setNotifications(prev => [notif, ...prev]);
 
-        // Show floating in-app toast
-        setActiveToast(notif);
-
-        // Auto-dismiss toast after 5 seconds
-        setTimeout(() => {
-          setActiveToast(null);
-        }, 5000);
-
         // Auto-refresh reports feed
         fetchReports();
+
+        // Avoid showing floating toast for 'dispatched'/'assigned' notifications on technician dashboard
+        const titleLower = (notif.title || '').toLowerCase();
+        const msgLower = (notif.message || '').toLowerCase();
+        const isDispatched = titleLower.includes('dispatched') || msgLower.includes('dispatched') || titleLower.includes('assigned') || msgLower.includes('assigned') || titleLower.includes('assign');
+
+        if (!(currentUser?.role === 'technician' && isDispatched)) {
+          // Show floating in-app toast
+          setActiveToast(notif);
+
+          // Auto-dismiss toast after 5 seconds
+          setTimeout(() => {
+            setActiveToast(null);
+          }, 5000);
+        }
       } catch (err) {
         console.error('[SSE] Failed to parse event message', err);
       }
@@ -250,9 +256,11 @@ export default function App() {
     const userRaw = localStorage.getItem('campulse-user');
     if (!userRaw) return;
     const user = JSON.parse(userRaw);
+    const activeToken = token || localStorage.getItem('campulse-token') || '';
 
-    const success = await syncOfflineReports(user.id, setSyncStatus);
-    if (success) {
+    const reportsSuccess = await syncOfflineReports(user.id, setSyncStatus);
+    const actionsSuccess = await syncOfflineActions(activeToken, setSyncStatus);
+    if (reportsSuccess || actionsSuccess) {
       fetchReports();
     }
   }
@@ -375,15 +383,36 @@ export default function App() {
     // Save previous state for rollback
     const previousReports = [...reports];
 
-    // Optimistically update status to 'assigned'
-    setReports(prev => prev.map(r => r.id === reportId ? { ...r, status: 'assigned' } : r));
+    const tech = technicians.find(t => t.id === technicianId);
+    const techName = tech ? tech.name : 'Assigned Technician';
+
+    // Optimistically update status to 'assigned' and include technician details
+    setReports(prev => prev.map(r => r.id === reportId ? { 
+      ...r, 
+      status: 'assigned',
+      assigned_technician_id: technicianId,
+      assigned_technician_name: techName
+    } : r));
+
+    if (!navigator.onLine) {
+      addOfflineAction({
+        id: `act-${Date.now()}`,
+        type: 'assign',
+        reportId,
+        payload: { technician_id: technicianId },
+        created_at: new Date().toISOString()
+      });
+      alert('🛜 Offline mode detected! This assignment has been queued in your device\'s local storage and will automatically synchronize with ABU servers once your internet connection is restored.');
+      return;
+    }
 
     try {
+      const activeToken = token || localStorage.getItem('campulse-token') || '';
       const res = await fetch(`/api/reports/${reportId}/assign`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${activeToken}`
         },
         body: JSON.stringify({ technician_id: technicianId })
       });
@@ -397,13 +426,24 @@ export default function App() {
       } else {
         // Rollback on server error
         setReports(previousReports);
-        const d = await res.json();
-        alert(d.error || 'Failed to assign technician');
+        let errorMsg = 'Failed to assign technician';
+        try {
+          const d = await res.json();
+          errorMsg = d.error || errorMsg;
+        } catch (_) {}
+        alert(errorMsg);
       }
     } catch (e) {
-      // Rollback on network failure
-      setReports(previousReports);
-      alert('Error updating assignment. Try again once online.');
+      // Queue action offline and don't rollback if it was a network error
+      console.warn('Network assignment request failed, caching offline:', e);
+      addOfflineAction({
+        id: `act-${Date.now()}`,
+        type: 'assign',
+        reportId,
+        payload: { technician_id: technicianId },
+        created_at: new Date().toISOString()
+      });
+      alert('🛜 Connection issue detected. This assignment has been saved to your offline queue and will automatically retry when a stable connection returns.');
     }
   };
 
@@ -415,12 +455,31 @@ export default function App() {
     // Optimistically update report status immediately
     setReports(prev => prev.map(r => r.id === reportId ? { ...r, status } : r));
 
+    const activeToken = token || localStorage.getItem('campulse-token') || '';
+
+    if (!navigator.onLine) {
+      addOfflineAction({
+        id: `act-${Date.now()}`,
+        type: 'status_change',
+        reportId,
+        payload: {
+          status,
+          technician_id: currentUser?.role === 'technician' ? currentUser.id : undefined,
+          comment_text: commentText,
+          photo_proof: photoProof
+        },
+        created_at: new Date().toISOString()
+      });
+      alert('🛜 Offline mode detected! This status update has been cached locally and will automatically synchronize with Ahmadu Bello University servers once you are back online.');
+      return;
+    }
+
     try {
       const res = await fetch(`/api/reports/${reportId}/status`, {
         method: 'PUT',
         headers: { 
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${activeToken}`
         },
         body: JSON.stringify({
           status,
@@ -439,13 +498,28 @@ export default function App() {
       } else {
         // Rollback on server error
         setReports(previousReports);
-        const d = await res.json();
-        alert(d.error || 'Failed to update status');
+        let errorMsg = 'Failed to update status';
+        try {
+          const d = await res.json();
+          errorMsg = d.error || errorMsg;
+        } catch (_) {}
+        alert(errorMsg);
       }
     } catch (e) {
-      // Rollback on network failure
-      setReports(previousReports);
-      alert('Error updating status. Connection unavailable.');
+      console.warn('Network status update failed, caching offline:', e);
+      addOfflineAction({
+        id: `act-${Date.now()}`,
+        type: 'status_change',
+        reportId,
+        payload: {
+          status,
+          technician_id: currentUser?.role === 'technician' ? currentUser.id : undefined,
+          comment_text: commentText,
+          photo_proof: photoProof
+        },
+        created_at: new Date().toISOString()
+      });
+      alert('🛜 Connection issue detected. Status change has been cached locally and will sync once online.');
     }
   };
 
@@ -476,7 +550,21 @@ export default function App() {
     );
   }
 
-  const unreadCount = notifications.filter(n => !n.read).length;
+  const unreadCount = notifications.filter(notif => {
+    if (notif.read) return false;
+    if (currentUser?.role === 'technician') {
+      const titleLower = (notif.title || '').toLowerCase();
+      const msgLower = (notif.message || '').toLowerCase();
+      const isDispatched = titleLower.includes('dispatched') || msgLower.includes('dispatched') || titleLower.includes('assigned') || msgLower.includes('assigned') || titleLower.includes('assign');
+      if (isDispatched) {
+        return false;
+      }
+      if (notif.user_id && notif.user_id !== currentUser.id) {
+        return false;
+      }
+    }
+    return true;
+  }).length;
 
   return (
     <div className="bg-slate-50 text-slate-800 h-full w-full max-w-6xl mx-auto md:shadow-2xl md:my-4 md:rounded-3xl md:h-[calc(100vh-2rem)] relative flex flex-col justify-between overflow-hidden font-sans border-x border-slate-200/60 shadow-xl">
@@ -579,7 +667,8 @@ export default function App() {
                   if (currentUser?.role === 'technician') {
                     const titleLower = (notif.title || '').toLowerCase();
                     const msgLower = (notif.message || '').toLowerCase();
-                    if (titleLower.includes('dispatched') || msgLower.includes('dispatched')) {
+                    const isDispatched = titleLower.includes('dispatched') || msgLower.includes('dispatched') || titleLower.includes('assigned') || msgLower.includes('assigned') || titleLower.includes('assign');
+                    if (isDispatched) {
                       return false;
                     }
                     if (notif.user_id && notif.user_id !== currentUser.id) {

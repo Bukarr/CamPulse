@@ -10,7 +10,7 @@ interface TechnicianViewProps {
 }
 
 export default function TechnicianView({ technicianUserId, reports, onUpdateStatus, onRefresh }: TechnicianViewProps) {
-  const [assignedReports, setAssignedReports] = useState<Report[]>([]);
+  const [techProfile, setTechProfile] = useState<any>(null);
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
   const [activeDetailReport, setActiveDetailReport] = useState<Report | null>(null);
   const [photoProof, setPhotoProof] = useState<string | undefined>(undefined);
@@ -56,40 +56,32 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
   };
 
   useEffect(() => {
-    fetchAssignedQueue();
-  }, [reports, technicianUserId]);
-
-  const fetchAssignedQueue = async () => {
-    // Filter reports that are assigned to this technician.
-    // In our local mock, prof/tech relationship is bridged by assignments.
-    try {
-      const res = await fetch('/api/technicians');
-      const techs = await res.json();
-      const tech = techs.find((t: any) => t.user_id === technicianUserId);
-      
-      if (tech) {
-        // Find reports assigned to this tech id
-        const reportsRes = await fetch('/api/reports');
-        const allReports: Report[] = await reportsRes.json();
-        const activeTechReports = allReports.filter(
-          r => r.status !== 'resolved' && reports.some(or => or.id === r.id && or.status === r.status)
-        );
-        
-        // Let's filter in memory against our reports prop
-        const filtered = reports.filter(r => 
-          (r.status === 'assigned' || r.status === 'in_progress')
-        );
-        setAssignedReports(filtered);
-      } else {
-        // Fallback for demo/testing: show all assigned/in_progress reports
-        const filtered = reports.filter(r => r.status === 'assigned' || r.status === 'in_progress');
-        setAssignedReports(filtered);
+    const loadTechProfile = async () => {
+      try {
+        const res = await fetch('/api/technicians');
+        const techs = await res.json();
+        const tech = techs.find((t: any) => t.user_id === technicianUserId);
+        if (tech) {
+          setTechProfile(tech);
+        }
+      } catch (err) {
+        console.warn('Failed to load technician profile:', err);
       }
-    } catch (e) {
-      const filtered = reports.filter(r => r.status === 'assigned' || r.status === 'in_progress');
-      setAssignedReports(filtered);
+    };
+    loadTechProfile();
+  }, [technicianUserId]);
+
+  // Derive assignedReports reactively from props and tech profile
+  const assignedReports = reports.filter(r => {
+    const isAssignedOrInProgress = r.status === 'assigned' || r.status === 'in_progress';
+    if (!isAssignedOrInProgress) return false;
+
+    if (techProfile) {
+      return r.assigned_technician_id === techProfile.id || r.assigned_technician_name === techProfile.name;
     }
-  };
+    // Fallback: show assigned or in-progress while profile is loading
+    return true;
+  });
 
   const handleUpdate = async (reportId: string, nextStatus: ReportStatus) => {
     if (nextStatus === 'resolved') {
@@ -100,7 +92,6 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
     setIsSubmitting(true);
     try {
       await onUpdateStatus(reportId, nextStatus);
-      fetchAssignedQueue();
     } catch (err) {
       console.error(err);
     } finally {
@@ -124,7 +115,6 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
       setSelectedReport(null);
       setCommentText('');
       setPhotoProof(undefined);
-      fetchAssignedQueue();
     } catch (err: any) {
       setError(err.message || 'Failed to submit resolution.');
     } finally {
