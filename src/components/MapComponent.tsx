@@ -1,8 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polygon, useMapEvents, Tooltip, useMap } from 'react-leaflet';
 import L from 'leaflet';
+// @ts-ignore
+import MarkerClusterGroup from 'react-leaflet-markercluster';
+import '../../node_modules/react-leaflet-markercluster/dist/styles.min.css';
 import { Report, AbuZone, ReportCategory } from '../types';
-import { abuZones, ABU_LAT, ABU_LNG } from '../data/abuZones';
+import { abuZones, ABU_LAT, ABU_LNG, abuGeoJson } from '../data/abuZones';
 import { Search, MapPin, X, ChevronRight, Menu, MapPinned, Info, Navigation, Compass, Check } from 'lucide-react';
 
 // Fix for default Leaflet icon paths in Webpack/Vite bundlers using CDN assets
@@ -94,6 +97,42 @@ const selectedZoneIcon = L.divIcon({
   iconSize: [48, 48],
   iconAnchor: [24, 24]
 });
+
+// --- ABU LANDMARKS DATA PARSING & GEOGRAPHIC CLUSTERING ---
+
+export interface Landmark {
+  id: string;
+  name: string;
+  category: string;
+  lat: number;
+  lng: number;
+}
+
+/**
+ * Async utility to fetch building landmarks from ABU Zaria's geospatial dataset
+ */
+export async function fetchAbuLandmarksAsync(): Promise<Landmark[]> {
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      if (!abuGeoJson || !abuGeoJson.features) {
+        resolve([]);
+        return;
+      }
+      const landmarks = abuGeoJson.features.map((feat: any) => {
+        const lat = feat.geometry.coordinates[1];
+        const lng = feat.geometry.coordinates[0];
+        return {
+          id: feat.properties.zone_id,
+          name: feat.properties.name,
+          category: feat.properties.category || 'other',
+          lat,
+          lng
+        };
+      });
+      resolve(landmarks);
+    }, 50);
+  });
+}
 
 function getZoneCenter(zone: AbuZone): [number, number] {
   const lngs = zone.coordinates.map(c => c[0]);
@@ -189,6 +228,25 @@ export default function MapComponent({
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState<string>('all');
   const [mapLayer, setMapLayer] = useState<'streets' | 'satellite' | 'dark'>('streets');
+  const [landmarks, setLandmarks] = useState<Landmark[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    const loadLandmarks = async () => {
+      try {
+        const data = await fetchAbuLandmarksAsync();
+        if (active) {
+          setLandmarks(data);
+        }
+      } catch (err) {
+        console.error('Failed to retrieve ABU Zaria geospatial landmarks:', err);
+      }
+    };
+    loadLandmarks();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const handleSelectZone = (zone: AbuZone) => {
     const center = getZoneCenter(zone);
@@ -433,6 +491,55 @@ export default function MapComponent({
             </Marker>
           );
         })}
+
+        {/* ABU Zaria Buildings Clustered Markers Layer using react-leaflet-markercluster */}
+        {landmarks.length > 0 && (
+          // @ts-ignore
+          <MarkerClusterGroup>
+            {landmarks.map((l) => {
+              const emojiMap: Record<string, string> = {
+                faculty: '🏫',
+                department: '📚',
+                library: '📖',
+                hostel: '🏠',
+                administration: '🏛️',
+                other: '📍'
+              };
+              const emoji = emojiMap[l.category] || '🏛️';
+              const customIcon = L.divIcon({
+                className: 'custom-landmark-marker-container',
+                html: `
+                  <div class="relative flex flex-col items-center group cursor-pointer transition-all duration-200 hover:scale-115">
+                    <div class="w-5.5 h-5.5 rounded-full bg-slate-900 text-white border border-slate-700 shadow-sm flex items-center justify-center text-[9px] font-sans font-medium">
+                      ${emoji}
+                    </div>
+                  </div>
+                `,
+                iconSize: [22, 22],
+                iconAnchor: [11, 11]
+              });
+
+              return (
+                <Marker
+                  key={`landmark-${l.id}-${l.name}`}
+                  position={[l.lat, l.lng]}
+                  icon={customIcon}
+                >
+                  <Popup>
+                    <div className="p-2 text-xs text-slate-100 max-w-[210px]">
+                      <h4 className="font-bold text-indigo-400 font-sans mb-1 leading-snug">
+                        {l.name}
+                      </h4>
+                      <span className="text-[8px] bg-slate-800 text-slate-300 font-extrabold px-1.5 py-0.5 rounded uppercase tracking-wide">
+                        {l.category.replace('-', ' ')}
+                      </span>
+                    </div>
+                  </Popup>
+                </Marker>
+              );
+            })}
+          </MarkerClusterGroup>
+        )}
 
         {/* Reporter placement marker */}
         {reportingCoords && (
