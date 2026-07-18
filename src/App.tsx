@@ -135,54 +135,121 @@ export default function App() {
     fetchNotifications();
     fetchTechnicians();
 
-    // Setup Server-Sent Events (SSE) stream for real-time notifications
-    const eventSource = new EventSource(`/api/events?userId=${currentUser.id}`);
+    let eventSource: EventSource | null = null;
+    let reconnectTimeout: NodeJS.Timeout | null = null;
+    let heartbeatTimeout: NodeJS.Timeout | null = null;
+    let isMounted = true;
 
-    eventSource.onmessage = (event) => {
-      try {
-        const notif = JSON.parse(event.data);
-        console.log('[SSE] Received live real-time notification:', notif);
-
-        // Filter out notifications intended for other users, but still refresh reports feed to keep state in sync
-        if (currentUser?.role === 'technician') {
-          if (notif.user_id && notif.user_id !== currentUser.id) {
-            console.log('[SSE] Refreshing reports for other user notification:', notif.id);
-            fetchReports();
-            return;
-          }
+    const resetHeartbeat = () => {
+      if (heartbeatTimeout) {
+        clearTimeout(heartbeatTimeout);
+      }
+      heartbeatTimeout = setTimeout(() => {
+        if (!isMounted) return;
+        console.log('[SSE] Heartbeat timeout: No message received for 30 seconds. Silently restarting connection...');
+        if (eventSource) {
+          eventSource.close();
+          eventSource = null;
         }
+        connectSSE();
+      }, 30000);
+    };
 
-        // Add to state list
-        setNotifications(prev => [notif, ...prev]);
+    const connectSSE = () => {
+      if (!isMounted) return;
 
-        // Auto-refresh reports feed
-        fetchReports();
+      console.log('[SSE] Attempting to connect to EventSource...');
+      if (eventSource) {
+        eventSource.close();
+      }
 
-        // Avoid showing floating toast for 'dispatched'/'assigned' notifications on technician dashboard
-        const titleLower = (notif.title || '').toLowerCase();
-        const msgLower = (notif.message || '').toLowerCase();
-        const isDispatched = titleLower.includes('dispatched') || msgLower.includes('dispatched') || titleLower.includes('assigned') || msgLower.includes('assigned') || titleLower.includes('assign');
+      eventSource = new EventSource(`/api/events?userId=${currentUser.id}`);
 
-        if (!(currentUser?.role === 'technician' && isDispatched)) {
-          // Show floating in-app toast
+      eventSource.onopen = () => {
+        console.log('[SSE] Connection successfully established!');
+        resetHeartbeat();
+      };
+
+      eventSource.onmessage = (event) => {
+        resetHeartbeat();
+        try {
+          const notif = JSON.parse(event.data);
+          console.log('[SSE] Received live real-time notification:', notif);
+
+          // Filter out notifications intended for other users, but still refresh reports feed to keep state in sync
+          if (currentUser?.role === 'technician') {
+            if (notif.user_id && notif.user_id !== currentUser.id) {
+              console.log('[SSE] Refreshing reports for other user notification:', notif.id);
+              fetchReports();
+              return;
+            }
+          }
+
+          // Add to state list
+          setNotifications(prev => [notif, ...prev]);
+
+          // Update the specific report immediately in local state
+          if (notif.reference_id) {
+            setReports(prev => prev.map(r => {
+              if (r.id === notif.reference_id) {
+                const updatedFields: Partial<Report> = {};
+                if (notif.type === 'new_assignment' || notif.title?.includes('Assigned') || notif.message?.includes('assigned')) {
+                  updatedFields.status = 'assigned';
+                  if (currentUser.role === 'technician') {
+                    updatedFields.assigned_technician_id = currentUser.id;
+                    updatedFields.assigned_technician_name = currentUser.name;
+                  }
+                }
+                return { ...r, ...updatedFields };
+              }
+              return r;
+            }));
+          }
+
+          // Auto-refresh reports feed
+          fetchReports();
+
+          // Show floating in-app toast immediately
           setActiveToast(notif);
 
           // Auto-dismiss toast after 5 seconds
           setTimeout(() => {
             setActiveToast(null);
           }, 5000);
+        } catch (err) {
+          console.error('[SSE] Failed to parse event message', err);
         }
-      } catch (err) {
-        console.error('[SSE] Failed to parse event message', err);
-      }
+      };
+
+      eventSource.onerror = (err) => {
+        console.warn('[SSE] Event stream lost connection. Retrying in 5 seconds...', err);
+        if (heartbeatTimeout) {
+          clearTimeout(heartbeatTimeout);
+        }
+        if (eventSource) {
+          eventSource.close();
+          eventSource = null;
+        }
+        if (isMounted) {
+          clearTimeout(reconnectTimeout!);
+          reconnectTimeout = setTimeout(connectSSE, 5000);
+        }
+      };
     };
 
-    eventSource.onerror = (err) => {
-      console.warn('[SSE] Event stream lost connection. Retrying in background...', err);
-    };
+    connectSSE();
 
     return () => {
-      eventSource.close();
+      isMounted = false;
+      if (eventSource) {
+        eventSource.close();
+      }
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+      }
+      if (heartbeatTimeout) {
+        clearTimeout(heartbeatTimeout);
+      }
     };
   }, [currentUser?.id]);
 
@@ -347,8 +414,18 @@ export default function App() {
       } else {
         // Silently fetch and update reports in the background to ensure data alignment without blocking UI
         const data = await res.json();
-        if (data && data.report) {
-          setReports(prev => prev.map(r => r.id === reportId ? { ...r, ...data.report } : r));
+        const updatedReport = data && data.report ? data.report : data;
+        if (updatedReport && updatedReport.id) {
+          setReports(prev => prev.map(r => {
+            if (r.id === reportId) {
+              return { 
+                ...r, 
+                upvotes: updatedReport.upvotes, 
+                upvoted_by: updatedReport.upvoted_by || [] 
+              };
+            }
+            return r;
+          }));
         }
       }
     } catch (e) {
@@ -504,8 +581,12 @@ export default function App() {
           errorMsg = d.error || errorMsg;
         } catch (_) {}
         alert(errorMsg);
+        throw new Error(errorMsg);
       }
-    } catch (e) {
+    } catch (e: any) {
+      if (e.message && (e.message.includes('Failed to update status') || e.message.includes('Guard') || e.message.includes('Denied'))) {
+        throw e;
+      }
       console.warn('Network status update failed, caching offline:', e);
       addOfflineAction({
         id: `act-${Date.now()}`,
@@ -553,12 +634,6 @@ export default function App() {
   const unreadCount = notifications.filter(notif => {
     if (notif.read) return false;
     if (currentUser?.role === 'technician') {
-      const titleLower = (notif.title || '').toLowerCase();
-      const msgLower = (notif.message || '').toLowerCase();
-      const isDispatched = titleLower.includes('dispatched') || msgLower.includes('dispatched') || titleLower.includes('assigned') || msgLower.includes('assigned') || titleLower.includes('assign');
-      if (isDispatched) {
-        return false;
-      }
       if (notif.user_id && notif.user_id !== currentUser.id) {
         return false;
       }
@@ -665,12 +740,6 @@ export default function App() {
               {(() => {
                 const filteredList = notifications.filter(notif => {
                   if (currentUser?.role === 'technician') {
-                    const titleLower = (notif.title || '').toLowerCase();
-                    const msgLower = (notif.message || '').toLowerCase();
-                    const isDispatched = titleLower.includes('dispatched') || msgLower.includes('dispatched') || titleLower.includes('assigned') || msgLower.includes('assigned') || titleLower.includes('assign');
-                    if (isDispatched) {
-                      return false;
-                    }
                     if (notif.user_id && notif.user_id !== currentUser.id) {
                       return false;
                     }
@@ -903,6 +972,7 @@ export default function App() {
                   onUpdateStatus={handleUpdateStatus}
                   technicians={technicians}
                   onRegisterTechnician={(newTech) => setTechnicians(prev => [...prev, newTech])}
+                  token={token}
                 />
               ) : currentUser.role === 'technician' ? (
                 <TechnicianView

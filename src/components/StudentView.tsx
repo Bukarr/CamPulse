@@ -33,7 +33,8 @@ export default function StudentView({ userId, userName, reports, onUpvote, onAdd
   const [categoryFilter, setCategoryFilter] = useState<ReportCategory | 'all'>('all');
   const [urgencyFilter, setUrgencyFilter] = useState<number | 'all'>('all');
   const [sortBy, setSortBy] = useState<'newest' | 'upvotes' | 'gemma_rank'>('newest');
-  const [selectedReport, setSelectedReport] = useState<Report | null>(null);
+  const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
+  const selectedReport = reports.find(r => r.id === selectedReportId) || null;
   const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState('');
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
@@ -268,7 +269,7 @@ export default function StudentView({ userId, userName, reports, onUpvote, onAdd
             return (
               <div
                 key={report.id}
-                onClick={() => setSelectedReport(report)}
+                onClick={() => setSelectedReportId(report.id)}
                 className="bg-white border border-slate-200/80 hover:border-emerald-500/50 p-4 rounded-xl flex gap-3.5 cursor-pointer transition-all shadow-xs relative group"
               >
                 {/* Left upvote block */}
@@ -344,7 +345,7 @@ export default function StudentView({ userId, userName, reports, onUpvote, onAdd
                       if (window.confirm("Are you sure you want to delete this maintenance report? This will remove all associated comments.")) {
                         const success = await onDeleteReport(selectedReport.id);
                         if (success) {
-                          setSelectedReport(null);
+                          setSelectedReportId(null);
                         }
                       }
                     }}
@@ -355,7 +356,7 @@ export default function StudentView({ userId, userName, reports, onUpvote, onAdd
                 )}
                 <button
                   onClick={() => {
-                    setSelectedReport(null);
+                    setSelectedReportId(null);
                     setNewComment('');
                   }}
                   className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-700 font-bold px-3 py-1.5 rounded-lg transition-all cursor-pointer"
