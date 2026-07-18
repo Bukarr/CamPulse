@@ -122,6 +122,34 @@ export async function syncOfflineReports(reporterId: string, onProgress?: (msg: 
     });
 
     if (res.ok) {
+      const data = await res.json();
+      const idMap = data.idMap || {};
+
+      try {
+        const actions = getOfflineActions();
+        if (actions.length > 0) {
+          let actionsUpdated = false;
+          const updatedActions = actions.map(action => {
+            if (action.reportId && idMap[action.reportId]) {
+              console.log(`[OfflineQueue] Mapping action reportId from ${action.reportId} to ${idMap[action.reportId]}`);
+              actionsUpdated = true;
+              return {
+                ...action,
+                reportId: idMap[action.reportId]
+              };
+            }
+            return action;
+          });
+
+          if (actionsUpdated) {
+            localStorage.setItem('campulse-offline-actions', JSON.stringify(updatedActions));
+            window.dispatchEvent(new Event('campulse-offline-queue-updated'));
+          }
+        }
+      } catch (err) {
+        console.error('[OfflineQueue] Failed to map temporary IDs in offline actions queue:', err);
+      }
+
       await clearOfflineQueue();
       if (onProgress) {
         onProgress('🎉 Success! All cached offline reports have been synchronized with the ABU server!');

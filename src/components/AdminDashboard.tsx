@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { z } from 'zod';
 import { Shield, Wrench, Clock, AlertTriangle, CheckSquare, Search, Filter, ArrowUpDown, ChevronRight, BarChart3, Users } from 'lucide-react';
 import { 
   BarChart, 
@@ -19,6 +20,7 @@ interface AdminDashboardProps {
   onUpdateStatus: (reportId: string, status: ReportStatus) => Promise<void>;
   technicians?: Technician[];
   onRegisterTechnician?: (newTech: Technician) => void;
+  token?: string | null;
 }
 
 const CATEGORY_LABELS: Record<ReportCategory, string> = {
@@ -45,12 +47,25 @@ const PRIORITY_COLORS: Record<number, string> = {
   5: 'bg-rose-50 text-rose-600 border-rose-200/60 shadow-xs animate-pulse'
 };
 
+const technicianSchema = z.object({
+  name: z.string()
+    .trim()
+    .min(2, { message: 'Name must be at least 2 characters long.' })
+    .max(100, { message: 'Name cannot exceed 100 characters.' }),
+  email: z.string()
+    .trim()
+    .email({ message: 'Please enter a valid email address.' }),
+  skill_tags: z.array(z.string())
+    .min(1, { message: 'Please assign at least one category specialty tag.' }),
+});
+
 export default function AdminDashboard({ 
   reports, 
   onAssignTechnician, 
   onUpdateStatus,
   technicians: propTechnicians = [],
-  onRegisterTechnician
+  onRegisterTechnician,
+  token
 }: AdminDashboardProps) {
   const [technicians, setTechnicians] = useState<Technician[]>(propTechnicians);
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
@@ -90,27 +105,36 @@ export default function AdminDashboard({
 
   const handleRegisterTechnician = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newTechName.trim() || !newTechEmail.trim()) {
-      setTechRegError('Please provide both name and email.');
-      return;
-    }
-    if (newTechSkills.length === 0) {
-      setTechRegError('Please assign at least one category specialty tag.');
-      return;
-    }
-
-    setIsRegisteringTech(true);
     setTechRegSuccess(null);
     setTechRegError(null);
 
+    const validation = technicianSchema.safeParse({
+      name: newTechName,
+      email: newTechEmail,
+      skill_tags: newTechSkills
+    });
+
+    if (!validation.success) {
+      const errorMsg = validation.error.issues.map(err => err.message).join(' ');
+      setTechRegError(errorMsg);
+      return;
+    }
+
+    const validData = validation.data;
+    setIsRegisteringTech(true);
+
     try {
+      const activeToken = token || localStorage.getItem('campulse-token') || '';
       const res = await fetch('/api/admin/technicians', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${activeToken}`
+        },
         body: JSON.stringify({
-          name: newTechName.trim(),
-          email: newTechEmail.trim(),
-          skill_tags: newTechSkills
+          name: validData.name,
+          email: validData.email,
+          skill_tags: validData.skill_tags
         })
       });
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Wrench, CheckCircle, Navigation, MapPin, Camera, Clock, AlertTriangle } from 'lucide-react';
+import { Wrench, CheckCircle, Navigation, MapPin, Camera, Clock, AlertTriangle, Loader2 } from 'lucide-react';
 import { Report, ReportStatus } from '../types';
 
 interface TechnicianViewProps {
@@ -12,7 +12,9 @@ interface TechnicianViewProps {
 export default function TechnicianView({ technicianUserId, reports, onUpdateStatus, onRefresh }: TechnicianViewProps) {
   const [techProfile, setTechProfile] = useState<any>(null);
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
-  const [activeDetailReport, setActiveDetailReport] = useState<Report | null>(null);
+  const [activeDetailReportId, setActiveDetailReportId] = useState<string | null>(null);
+  const activeDetailReport = reports.find(r => r.id === activeDetailReportId) || null;
+  const [updatingReportIds, setUpdatingReportIds] = useState<Record<string, boolean>>({});
   const [photoProof, setPhotoProof] = useState<string | undefined>(undefined);
   const [commentText, setCommentText] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -71,16 +73,24 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
     loadTechProfile();
   }, [technicianUserId]);
 
+  // Filtering States
+  const [statusFilter, setStatusFilter] = useState<ReportStatus | 'all'>('all');
+  const [categoryFilter, setCategoryFilter] = useState<string | 'all'>('all');
+
   // Derive assignedReports reactively from props and tech profile
   const assignedReports = reports.filter(r => {
-    const isAssignedOrInProgress = r.status === 'assigned' || r.status === 'in_progress';
-    if (!isAssignedOrInProgress) return false;
-
     if (techProfile) {
       return r.assigned_technician_id === techProfile.id || r.assigned_technician_name === techProfile.name;
     }
     // Fallback: show assigned or in-progress while profile is loading
-    return true;
+    return r.status === 'assigned' || r.status === 'in_progress';
+  });
+
+  // Filter based on selected status and category filters
+  const filteredReports = assignedReports.filter(r => {
+    const matchesStatus = statusFilter === 'all' || r.status === statusFilter;
+    const matchesCategory = categoryFilter === 'all' || r.category === categoryFilter;
+    return matchesStatus && matchesCategory;
   });
 
   const handleUpdate = async (reportId: string, nextStatus: ReportStatus) => {
@@ -89,13 +99,15 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
       return;
     }
 
+    setUpdatingReportIds(prev => ({ ...prev, [reportId]: true }));
     setIsSubmitting(true);
     try {
       await onUpdateStatus(reportId, nextStatus);
     } catch (err) {
       console.error(err);
-    } finally {
+      // Only re-enable on failure
       setIsSubmitting(false);
+      setUpdatingReportIds(prev => ({ ...prev, [reportId]: false }));
     }
   };
 
@@ -117,7 +129,7 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
       setPhotoProof(undefined);
     } catch (err: any) {
       setError(err.message || 'Failed to submit resolution.');
-    } finally {
+      // Only re-enable on failure
       setIsSubmitting(false);
     }
   };
@@ -173,19 +185,62 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
         <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mt-1">ABU Samaru Campus Maintenance Assignments</p>
       </div>
 
+      {/* Filter Bar */}
+      <div className="bg-slate-50 border border-slate-200/80 p-3 rounded-2xl flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">Filter by:</span>
+        </div>
+        <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+          {/* Status Filter */}
+          <div className="flex-1 sm:flex-initial min-w-[120px]">
+            <select
+              id="tech-status-filter"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as any)}
+              className="w-full text-xs bg-white border border-slate-200 px-3 py-1.5 rounded-lg text-slate-600 font-medium focus:outline-hidden focus:ring-1 focus:ring-emerald-500"
+            >
+              <option value="all">All Statuses</option>
+              <option value="assigned">Assigned</option>
+              <option value="in_progress">In Progress</option>
+              <option value="resolved">Resolved</option>
+            </select>
+          </div>
+
+          {/* Category Filter */}
+          <div className="flex-1 sm:flex-initial min-w-[120px]">
+            <select
+              id="tech-category-filter"
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              className="w-full text-xs bg-white border border-slate-200 px-3 py-1.5 rounded-lg text-slate-600 font-medium focus:outline-hidden focus:ring-1 focus:ring-emerald-500"
+            >
+              <option value="all">All Categories</option>
+              <option value="broken_lights">Broken Lights</option>
+              <option value="plumbing">Plumbing / Leaks</option>
+              <option value="wifi_outage">WiFi Outage</option>
+              <option value="security">Security Concern</option>
+              <option value="structural">Structural Damage</option>
+              <option value="others">Other</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
       {/* Task Queue List */}
       <div className="space-y-3">
         <h3 className="text-[10px] font-bold text-slate-400 flex items-center gap-1.5 uppercase tracking-widest font-mono">
-          👷 Assigned Task Feed ({assignedReports.length} Active)
+          👷 Assigned Task Feed ({filteredReports.length} Shown / {assignedReports.length} Total)
         </h3>
 
-        {assignedReports.length === 0 ? (
+        {filteredReports.length === 0 ? (
           <div className="bg-slate-50 border border-slate-200 p-8 rounded-2xl text-center text-slate-400 text-xs font-semibold">
-            🎉 Amazing! Your task queue is completely empty. No current assignments.
+            {assignedReports.length === 0 
+              ? "🎉 Amazing! Your task queue is completely empty. No current assignments."
+              : "🔍 No tasks match your selected filter criteria."}
           </div>
         ) : (
           <div className="space-y-3">
-            {assignedReports.map((report) => (
+            {filteredReports.map((report) => (
               <div
                 key={report.id}
                 className="bg-white border border-slate-200/80 p-4 rounded-2xl space-y-3 shadow-xs hover:border-slate-300 transition-colors"
@@ -247,7 +302,7 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
                 <div className="space-y-2 pt-1 border-t border-slate-100">
                   <button
                     type="button"
-                    onClick={() => setActiveDetailReport(report)}
+                    onClick={() => setActiveDetailReportId(report.id)}
                     className="w-full text-center text-xs bg-slate-50 hover:bg-slate-100 border border-slate-200/80 hover:border-slate-300 text-slate-700 font-bold py-2 px-4 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                   >
                     📖 Open Full Task Details
@@ -256,20 +311,38 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
                   <div className="flex gap-2">
                     {report.status === 'assigned' && (
                       <button
-                        disabled={isSubmitting}
+                        disabled={updatingReportIds[report.id]}
                         onClick={() => handleUpdate(report.id, 'in_progress')}
-                        className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-100 disabled:text-slate-400 text-white font-bold text-xs py-2.5 rounded-xl transition-colors cursor-pointer text-center"
+                        className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-100 disabled:text-slate-400 text-white font-bold text-xs py-2.5 rounded-xl transition-colors cursor-pointer text-center flex items-center justify-center gap-1.5"
                       >
-                        🚀 Inspection Started
+                        {updatingReportIds[report.id] ? (
+                          <>
+                            <Loader2 size={13} className="animate-spin text-slate-400" />
+                            <span>Starting Work...</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>🚀 Start Work</span>
+                          </>
+                        )}
                       </button>
                     )}
                     {report.status === 'in_progress' && (
                       <button
-                        disabled={isSubmitting}
+                        disabled={updatingReportIds[report.id]}
                         onClick={() => handleUpdate(report.id, 'resolved')}
-                        className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-100 disabled:text-slate-400 text-white font-bold text-xs py-2.5 rounded-xl flex items-center justify-center gap-1 transition-colors cursor-pointer text-center"
+                        className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-100 disabled:text-slate-400 text-white font-bold text-xs py-2.5 rounded-xl flex items-center justify-center gap-1.5 transition-colors cursor-pointer text-center"
                       >
-                        <CheckCircle size={13} /> Task Completed
+                        {updatingReportIds[report.id] ? (
+                          <>
+                            <Loader2 size={13} className="animate-spin text-slate-400" />
+                            <span>Processing...</span>
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle size={13} /> Complete Work
+                          </>
+                        )}
                       </button>
                     )}
                   </div>
@@ -361,9 +434,16 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-100 disabled:text-slate-400 text-white font-bold text-xs py-2.5 rounded-xl transition-colors cursor-pointer text-center"
+                className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-100 disabled:text-slate-400 text-white font-bold text-xs py-2.5 rounded-xl transition-colors cursor-pointer text-center flex items-center justify-center gap-1.5"
               >
-                {isSubmitting ? 'Submitting resolution...' : 'Confirm Task Completed (Notifies Admin & Reporters)'}
+                {isSubmitting ? (
+                  <>
+                    <Loader2 size={13} className="animate-spin text-slate-400" />
+                    <span>Submitting resolution...</span>
+                  </>
+                ) : (
+                  <span>Confirm Task Completed (Notifies Admin & Reporters)</span>
+                )}
               </button>
             </form>
           </div>
@@ -389,7 +469,7 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
                 <p className="text-[9px] text-slate-400 font-bold font-mono">TICKET #{activeDetailReport.id}</p>
               </div>
               <button
-                onClick={() => setActiveDetailReport(null)}
+                onClick={() => setActiveDetailReportId(null)}
                 className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-800 font-bold px-2.5 py-1.5 rounded-lg cursor-pointer transition-colors"
               >
                 Close
@@ -463,26 +543,34 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
               <div className="pt-3 border-t border-slate-100 flex gap-2">
                 {activeDetailReport.status === 'assigned' && (
                   <button
-                    disabled={isSubmitting}
+                    disabled={updatingReportIds[activeDetailReport.id]}
                     onClick={async () => {
                       await handleUpdate(activeDetailReport.id, 'in_progress');
-                      setActiveDetailReport(prev => prev ? { ...prev, status: 'in_progress' } : null);
                     }}
-                    className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-100 text-white font-bold text-xs py-3 rounded-xl transition-all cursor-pointer text-center shadow-xs"
+                    className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-100 disabled:text-slate-400 text-white font-bold text-xs py-3 rounded-xl transition-all cursor-pointer text-center shadow-xs flex items-center justify-center gap-1.5"
                   >
-                    🚀 Inspection Started / Start Work
+                    {updatingReportIds[activeDetailReport.id] ? (
+                      <>
+                        <Loader2 size={14} className="animate-spin text-slate-400" />
+                        <span>Starting Work...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>🚀 Start Work</span>
+                      </>
+                    )}
                   </button>
                 )}
                 {activeDetailReport.status === 'in_progress' && (
                   <button
-                    disabled={isSubmitting}
+                    disabled={updatingReportIds[activeDetailReport.id]}
                     onClick={() => {
                       setSelectedReport(activeDetailReport);
-                      setActiveDetailReport(null);
+                      setActiveDetailReportId(null);
                     }}
-                    className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-100 text-white font-bold text-xs py-3 rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer text-center shadow-xs"
+                    className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-100 disabled:text-slate-400 text-white font-bold text-xs py-3 rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer text-center shadow-xs"
                   >
-                    <CheckCircle size={14} /> Task Completed / Fix Issue
+                    <CheckCircle size={14} /> Complete Work
                   </button>
                 )}
               </div>

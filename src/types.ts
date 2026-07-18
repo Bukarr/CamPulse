@@ -35,6 +35,11 @@ export interface Report {
   voice_interpretation?: string;
   assigned_technician_id?: string;
   assigned_technician_name?: string;
+  severity?: string;
+  location_hint?: string;
+  sentiment?: string;
+  report_count?: number;
+  triage_analysis?: string;
 }
 
 export interface Technician {
