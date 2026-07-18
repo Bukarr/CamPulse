@@ -100,7 +100,7 @@
       "lng": 7.6496,
       "zone_id": "zone-other",
       "zone_name": "ABU Campus (General)",
-      "status": "assigned",
+      "status": "resolved",
       "priority_score": 2,
       "is_anonymous": false,
       "upvotes": 0,
@@ -124,7 +124,7 @@
         "wifi_outage",
         "security"
       ],
-      "current_load": 2
+      "current_load": 0
     },
     {
       "id": "tech-2",
@@ -157,14 +157,16 @@
       "report_id": "rep-1784286561729",
       "technician_id": "tech-1",
       "technician_name": "Musa Garba",
-      "assigned_at": "2026-07-17T11:14:54.511Z"
+      "assigned_at": "2026-07-17T11:14:54.511Z",
+      "resolved_at": "2026-07-18T20:25:11.742Z"
     },
     {
       "id": "asg-1784286925991",
       "report_id": "rep-1784286561729",
       "technician_id": "tech-1",
       "technician_name": "Musa Garba",
-      "assigned_at": "2026-07-17T11:15:25.991Z"
+      "assigned_at": "2026-07-17T11:15:25.991Z",
+      "resolved_at": "2026-07-18T20:26:00.325Z"
     }
   ],
   "comments": [
@@ -194,6 +196,60 @@
       "user_role": "admin",
       "text": "Technician Musa Garba has been assigned to this ticket. Task queue load: 2 open assignments.",
       "created_at": "2026-07-17T11:15:25.991Z"
+    },
+    {
+      "id": "cmt-1784295592357",
+      "report_id": "rep-1784286561729",
+      "user_id": "usr-tech-1",
+      "user_name": "Musa Garba",
+      "user_role": "technician",
+      "text": "Status updated from \"assigned\" to \"in_progress\" by Musa Garba.",
+      "created_at": "2026-07-17T13:39:52.357Z"
+    },
+    {
+      "id": "cmt-1784405754789",
+      "report_id": "rep-1784286561729",
+      "user_id": "usr-admin-1",
+      "user_name": "Prof. Ibrahim Usman",
+      "user_role": "admin",
+      "text": "Status updated from \"in_progress\" to \"in_progress\" by Prof. Ibrahim Usman.",
+      "created_at": "2026-07-18T20:15:54.789Z"
+    },
+    {
+      "id": "cmt-1784405814250",
+      "report_id": "rep-1784286561729",
+      "user_id": "usr-tech-1",
+      "user_name": "Musa Garba",
+      "user_role": "technician",
+      "text": "Status updated from \"in_progress\" to \"in_progress\" by Musa Garba.",
+      "created_at": "2026-07-18T20:16:54.250Z"
+    },
+    {
+      "id": "cmt-1784406204165",
+      "report_id": "rep-1784286561729",
+      "user_id": "usr-tech-1",
+      "user_name": "Musa Garba",
+      "user_role": "technician",
+      "text": "Status updated from \"in_progress\" to \"in_progress\" by Musa Garba.",
+      "created_at": "2026-07-18T20:23:24.165Z"
+    },
+    {
+      "id": "cmt-1784406311742",
+      "report_id": "rep-1784286561729",
+      "user_id": "usr-tech-1",
+      "user_name": "Musa Garba",
+      "user_role": "technician",
+      "text": "task has been completed",
+      "created_at": "2026-07-18T20:25:11.742Z"
+    },
+    {
+      "id": "cmt-1784406360325",
+      "report_id": "rep-1784286561729",
+      "user_id": "usr-tech-1",
+      "user_name": "Musa Garba",
+      "user_role": "technician",
+      "text": "Status updated from \"resolved\" to \"resolved\" by Musa Garba.",
+      "created_at": "2026-07-18T20:26:00.325Z"
     }
   ],
   "notifications": [
@@ -256,6 +312,126 @@
       "reference_id": "rep-1784286561729",
       "read": false,
       "created_at": "2026-07-17T11:15:27.077Z"
+    },
+    {
+      "id": "notif-1784295593631-status",
+      "user_id": "usr-admin-1",
+      "title": "🔄 Ticket Status Updated: IN PROGRESS",
+      "message": "Your voice report has been picked up and is now being processed. A technician is currently working on the issue.",
+      "type": "status_change",
+      "reference_id": "rep-1784286561729",
+      "read": false,
+      "created_at": "2026-07-17T13:39:53.631Z"
+    },
+    {
+      "id": "notif-1784295593638-inspect-start-admin",
+      "user_id": "admin",
+      "title": "🚀 Inspection Started",
+      "message": "Technician Musa Garba has started the inspection for Ticket #rep-1784286561729 (OTHERS) in ABU Campus (General).",
+      "type": "status_change",
+      "reference_id": "rep-1784286561729",
+      "read": false,
+      "created_at": "2026-07-17T13:39:53.639Z"
+    },
+    {
+      "id": "notif-1784405758676-status",
+      "user_id": "usr-admin-1",
+      "title": "🔄 Ticket Status Updated: IN PROGRESS",
+      "message": "Your voice report is still being processed by our maintenance team. We are working on it and will notify you once there is an update.",
+      "type": "status_change",
+      "reference_id": "rep-1784286561729",
+      "read": false,
+      "created_at": "2026-07-18T20:15:58.676Z"
+    },
+    {
+      "id": "notif-1784405758688-inspect-start-admin",
+      "user_id": "admin",
+      "title": "🚀 Inspection Started",
+      "message": "Technician Prof. Ibrahim Usman has started the inspection for Ticket #rep-1784286561729 (OTHERS) in ABU Campus (General).",
+      "type": "status_change",
+      "reference_id": "rep-1784286561729",
+      "read": false,
+      "created_at": "2026-07-18T20:15:58.688Z"
+    },
+    {
+      "id": "notif-1784405815100-status",
+      "user_id": "usr-admin-1",
+      "title": "🔄 Ticket Status Updated: IN PROGRESS",
+      "message": "Your voice report is still being processed by our maintenance team. We are working on it and will notify you once there is an update.",
+      "type": "status_change",
+      "reference_id": "rep-1784286561729",
+      "read": false,
+      "created_at": "2026-07-18T20:16:55.100Z"
+    },
+    {
+      "id": "notif-1784405815115-inspect-start-admin",
+      "user_id": "admin",
+      "title": "🚀 Inspection Started",
+      "message": "Technician Musa Garba has started the inspection for Ticket #rep-1784286561729 (OTHERS) in ABU Campus (General).",
+      "type": "status_change",
+      "reference_id": "rep-1784286561729",
+      "read": false,
+      "created_at": "2026-07-18T20:16:55.115Z"
+    },
+    {
+      "id": "notif-1784406205414-status",
+      "user_id": "usr-admin-1",
+      "title": "🔄 Ticket Status Updated: IN PROGRESS",
+      "message": "Your voice report is still being processed by our maintenance team. We are working on it and will notify you once there is an update.",
+      "type": "status_change",
+      "reference_id": "rep-1784286561729",
+      "read": false,
+      "created_at": "2026-07-18T20:23:25.414Z"
+    },
+    {
+      "id": "notif-1784406205428-inspect-start-admin",
+      "user_id": "admin",
+      "title": "🚀 Inspection Started",
+      "message": "Technician Musa Garba has started the inspection for Ticket #rep-1784286561729 (OTHERS) in ABU Campus (General).",
+      "type": "status_change",
+      "reference_id": "rep-1784286561729",
+      "read": false,
+      "created_at": "2026-07-18T20:23:25.429Z"
+    },
+    {
+      "id": "notif-1784406313099-status",
+      "user_id": "usr-admin-1",
+      "title": "🔄 Ticket Status Updated: RESOLVED",
+      "message": "Your reported issue has been successfully resolved. The maintenance task is now complete.",
+      "type": "status_change",
+      "reference_id": "rep-1784286561729",
+      "read": false,
+      "created_at": "2026-07-18T20:25:13.099Z"
+    },
+    {
+      "id": "notif-1784406313106-inspect-finish-admin",
+      "user_id": "admin",
+      "title": "✅ Inspection Finished & Resolved",
+      "message": "Technician Musa Garba has confirmed finishing of the inspection and resolved Ticket #rep-1784286561729 (OTHERS) in ABU Campus (General).",
+      "type": "status_change",
+      "reference_id": "rep-1784286561729",
+      "read": false,
+      "created_at": "2026-07-18T20:25:13.107Z"
+    },
+    {
+      "id": "notif-1784406362160-status",
+      "user_id": "usr-admin-1",
+      "title": "🔄 Ticket Status Updated: RESOLVED",
+      "message": "Your voice report has been successfully processed and remains marked as resolved. No further action is required at this time.",
+      "type": "status_change",
+      "reference_id": "rep-1784286561729",
+      "read": false,
+      "created_at": "2026-07-18T20:26:02.160Z"
+    },
+    {
+      "id": "notif-1784406362170-inspect-finish-admin",
+      "user_id": "admin",
+      "title": "✅ Inspection Finished & Resolved",
+      "message": "Technician Musa Garba has confirmed finishing of the inspection and resolved Ticket #rep-1784286561729 (OTHERS) in ABU Campus (General).",
+      "type": "status_change",
+      "reference_id": "rep-1784286561729",
+      "read": false,
+      "created_at": "2026-07-18T20:26:02.171Z"
     }
   ]
 }
