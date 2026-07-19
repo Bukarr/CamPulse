@@ -190,6 +190,17 @@ async function initializePostgres() {
       `);
     }
 
+    const reportsCountRes = await pool.query('SELECT COUNT(*) FROM reports;');
+    if (parseInt(reportsCountRes.rows[0].count, 10) === 0) {
+      console.log('[PostgreSQL] Seeding reports table with initial reports...');
+      await pool.query(`
+        INSERT INTO reports (id, reporter_id, reporter_name, category, description, lat, lng, zone_id, zone_name, status, priority_score, severity, location_hint, sentiment, report_count, upvotes, upvoted_by, created_at) VALUES
+          ('rep-seed-1', 'usr-student-1', 'Sani Bello', 'plumbing', 'Main borehole water pipe leaking near Suleiman Hostel Gate. Flooding the entrance walkway.', 11.1442, 7.7123, 'zone-suleiman', 'Suleiman Hall', 'submitted', 4, 'high', 'Suleiman Hostel Gate', 'frustrated', 1, 3, ARRAY['usr-student-2'], NOW() - INTERVAL '24 hours'),
+          ('rep-seed-2', 'usr-student-2', 'Amina Yusuf', 'broken_lights', 'Walkway lights completely dark from Faculty of Engineering to Ribadu Hall. Total blackout, high security concern.', 11.1465, 7.7110, 'zone-ribadu', 'Ribadu Hall', 'assigned', 5, 'urgent', 'Engineering to Ribadu Walkway', 'angry', 1, 5, ARRAY['usr-student-1'], NOW() - INTERVAL '12 hours')
+        ON CONFLICT (id) DO NOTHING;
+      `);
+    }
+
     console.log('[PostgreSQL] Database schema fully initialized and verified!');
   } catch (err) {
     console.error('[PostgreSQL Initialization Error]', err);
@@ -525,7 +536,7 @@ function loadDatabase() {
 }
 
 function saveDatabase(data: any) {
-  fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
+  // Inert: Disable writes to db.json to prevent file watcher from restarting the server, ensuring Postgres is the sole source of truth while keeping in-memory db as fallback
 }
 
 async function startServer() {
@@ -549,73 +560,62 @@ async function startServer() {
   const sseClients: { userId: string; res: express.Response }[] = [];
 
   // Helper to determine if a notification should be delivered to a given user based on role-based rules
-  function shouldUserReceiveNotification(user: any, notification: Notification): boolean {
+  async function shouldUserReceiveNotification(user: any, notification: Notification): Promise<boolean> {
     if (!user) return false;
 
     // 1. If user is an Admin
     if (user.role === 'admin') {
-      // Admins receive all general admin notifications, direct notifications, and any maintenance reports notifications (reference_id)
-      if (notification.user_id === 'admin' || notification.user_id === user.id) {
-        return true;
-      }
-      if (notification.reference_id) {
-        return true;
-      }
-      return false;
+      // Admins receive notifications explicitly targeted to 'admin' or to their specific userId
+      return notification.user_id === 'admin' || notification.user_id === user.id;
     }
 
     // 2. If user is a Technician
     if (user.role === 'technician') {
-      // Technicians only receive tasks specifically assigned to them.
-      // First, check if the notification is a direct assignment/update for them
-      if (notification.user_id === user.id) {
-        return true;
-      }
-      // Or check if the notification's report is assigned to them
-      if (notification.reference_id) {
-        // If the notification is targeted to another user/role (e.g. a specific student ID or 'admin'),
-        // do not deliver it to this technician.
-        if (notification.user_id && 
-            notification.user_id !== user.id && 
-            notification.user_id !== 'all' && 
-            notification.user_id !== 'technician' && 
-            notification.user_id !== 'technicians') {
-          return false;
-        }
-
-        const tech = db.technicians.find((t: any) => t.user_id === user.id);
-        if (tech) {
-          const isAssigned = db.assignments.some(
-            (asg: any) => asg.report_id === notification.reference_id && asg.technician_id === tech.id
-          );
-          if (isAssigned) {
-            return true;
-          }
-        }
-      }
-      return false;
+      // Technicians only receive tasks and system messages specifically targeted/assigned to them
+      return notification.user_id === user.id;
     }
 
     // 3. If user is a Student
-    // "Ensure students only receive updates regarding their submitted reports."
-    // They must be the reporter of the report referenced in the notification.
-    if (notification.reference_id) {
-      const report = db.reports.find((r: any) => r.id === notification.reference_id);
-      if (report && report.reporter_id === user.id) {
-        // Also ensure it is targeted to them
-        if (notification.user_id === user.id) {
-          return true;
-        }
+    if (user.role === 'student') {
+      // Students must be the direct target of the notification
+      if (notification.user_id !== user.id) {
+        return false;
       }
-      return false;
+      
+      // If it refers to a specific report, ensure they are either the reporter or an upvoter
+      if (notification.reference_id) {
+        let report: any = null;
+        const pool = getPgPool();
+        if (pool) {
+          try {
+            const reportRes = await pool.query('SELECT reporter_id, upvoted_by FROM reports WHERE id = $1', [notification.reference_id]);
+            if (reportRes.rows.length > 0) {
+              report = reportRes.rows[0];
+            }
+          } catch (err) {
+            console.error('[PostgreSQL Error] failed to fetch report for notification:', err);
+          }
+        }
+        if (!report) {
+          report = db.reports.find((r: any) => r.id === notification.reference_id);
+        }
+
+        if (report) {
+          const isReporter = report.reporter_id === user.id;
+          const isUpvoter = report.upvoted_by && report.upvoted_by.includes(user.id);
+          return isReporter || isUpvoter;
+        }
+        return false;
+      }
+      return true;
     }
 
-    // Fallback for non-report-related notifications directly targeted to them
+    // Fallback for any other non-role scenarios
     return notification.user_id === user.id;
   }
 
   // Broadcast and save real-time notifications
-  function sendLiveNotification(notification: Notification, targetRole?: 'admin' | 'technician' | 'student') {
+  async function sendLiveNotification(notification: Notification, targetRole?: 'admin' | 'technician' | 'student') {
     if (!db.notifications) {
       db.notifications = [];
     }
@@ -624,18 +624,33 @@ async function startServer() {
 
     console.log(`[Notification] Broadcast to User: ${notification.user_id}, TargetRole: ${targetRole || 'all'}`);
 
-    sseClients.forEach(client => {
-      const user = db.users.find((u: any) => u.id === client.userId);
-      if (!user) return;
+    for (const client of sseClients) {
+      let user: any = null;
+      const pool = getPgPool();
+      if (pool) {
+        try {
+          const userRes = await pool.query('SELECT * FROM users WHERE id = $1', [client.userId]);
+          if (userRes.rows.length > 0) {
+            user = userRes.rows[0];
+          }
+        } catch (err) {
+          console.error('[PostgreSQL Error] failed to fetch sse user:', err);
+        }
+      }
+      if (!user) {
+        user = db.users.find((u: any) => u.id === client.userId);
+      }
+      if (!user) continue;
 
-      if (shouldUserReceiveNotification(user, notification)) {
+      const shouldReceive = await shouldUserReceiveNotification(user, notification);
+      if (shouldReceive) {
         try {
           client.res.write(`data: ${JSON.stringify(notification)}\n\n`);
         } catch (err) {
           console.error('[SSE] Failed to write notification to client', err);
         }
       }
-    });
+    }
   }
 
   // API Routes
@@ -684,19 +699,38 @@ async function startServer() {
   });
 
   // Get notifications for user
-  app.get('/api/notifications', (req, res) => {
+  app.get('/api/notifications', async (req, res) => {
     const userId = req.query.userId as string;
     if (!userId) {
       return res.status(400).json({ error: 'userId is required' });
     }
 
-    const user = db.users.find((u: any) => u.id === userId);
+    let user: any = null;
+    const pool = getPgPool();
+    if (pool) {
+      try {
+        const userRes = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
+        if (userRes.rows.length > 0) {
+          user = userRes.rows[0];
+        }
+      } catch (err) {
+        console.error('[PostgreSQL Error] Failed to fetch user for notifications:', err);
+      }
+    }
+    if (!user) {
+      user = db.users.find((u: any) => u.id === userId);
+    }
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     if (!db.notifications) db.notifications = [];
 
     // Filter using our robust role-based helper function
-    const filtered = db.notifications.filter((n: Notification) => shouldUserReceiveNotification(user, n));
+    const filtered: Notification[] = [];
+    for (const n of db.notifications) {
+      if (await shouldUserReceiveNotification(user, n)) {
+        filtered.push(n);
+      }
+    }
 
     // Newest first
     filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
@@ -716,24 +750,44 @@ async function startServer() {
   });
 
   // Clear all notifications
-  app.post('/api/notifications/clear', (req, res) => {
+  app.post('/api/notifications/clear', async (req, res) => {
     const { userId } = req.body;
     if (!userId) return res.status(400).json({ error: 'userId is required' });
 
-    const user = db.users.find((u: any) => u.id === userId);
+    let user: any = null;
+    const pool = getPgPool();
+    if (pool) {
+      try {
+        const userRes = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
+        if (userRes.rows.length > 0) {
+          user = userRes.rows[0];
+        }
+      } catch (err) {
+        console.error('[PostgreSQL Error] Failed to fetch user for notifications clear:', err);
+      }
+    }
+    if (!user) {
+      user = db.users.find((u: any) => u.id === userId);
+    }
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     if (!db.notifications) db.notifications = [];
 
     // Filter out notifications that this user is eligible to receive
-    db.notifications = db.notifications.filter((n: Notification) => !shouldUserReceiveNotification(user, n));
+    const remaining: Notification[] = [];
+    for (const n of db.notifications) {
+      if (!(await shouldUserReceiveNotification(user, n))) {
+        remaining.push(n);
+      }
+    }
+    db.notifications = remaining;
 
     saveDatabase(db);
     res.json({ success: true });
   });
 
   // Auth Google Mock/Verify
-  app.post('/api/auth/google', (req, res) => {
+  app.post('/api/auth/google', async (req, res) => {
     const { token, email, name, roleSelection } = req.body;
     
     if (!email) {
@@ -750,7 +804,23 @@ async function startServer() {
     }
 
     // Find or create user
-    let user = db.users.find((u: User) => u.email === email);
+    let user: User | null = null;
+    const pool = getPgPool();
+    if (pool) {
+      try {
+        const userRes = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+        if (userRes.rows.length > 0) {
+          user = userRes.rows[0];
+        }
+      } catch (err) {
+        console.error('[PostgreSQL Error] Auth find user failed:', err);
+      }
+    }
+
+    if (!user) {
+      user = db.users.find((u: User) => u.email === email) || null;
+    }
+
     if (!user) {
       // Determine role from email if possible, or use provided roleSelection
       let role: 'student' | 'admin' | 'technician' = 'student';
@@ -773,14 +843,33 @@ async function startServer() {
       db.users.push(user);
       
       // If technician, create technician profile
+      let techObj: Technician | null = null;
       if (role === 'technician') {
-        db.technicians.push({
+        techObj = {
           id: `tech-${Date.now()}`,
           user_id: user.id,
           name: user.name,
-          skill_tags: ['broken_lights', 'plumbing', 'wifi_outage', 'security'],
+          skill_tags: ['broken_lights', 'plumbing', 'wifi_outage', 'security', 'structural', 'others'],
           current_load: 0
-        });
+        };
+        db.technicians.push(techObj);
+      }
+
+      if (pool) {
+        try {
+          await pool.query(
+            `INSERT INTO users (id, google_id, name, email, role) VALUES ($1, $2, $3, $4, $5)`,
+            [user.id, user.google_id, user.name, user.email, user.role]
+          );
+          if (role === 'technician' && techObj) {
+            await pool.query(
+              `INSERT INTO technicians (id, user_id, name, skill_tags, current_load) VALUES ($1, $2, $3, $4, 0)`,
+              [techObj.id, techObj.user_id, techObj.name, techObj.skill_tags]
+            );
+          }
+        } catch (err) {
+          console.error('[PostgreSQL Error] Auth insert user failed:', err);
+        }
       }
       
       saveDatabase(db);
@@ -805,7 +894,7 @@ async function startServer() {
   });
 
   // Update user role (helper for role-swapping / testing)
-  app.post('/api/users/role', (req, res) => {
+  app.post('/api/users/role', async (req, res) => {
     const authHeader = req.headers.authorization;
     if (!authHeader) return res.status(401).json({ error: 'Unauthorized' });
     const parts = authHeader.replace('Bearer session-jwt-', '').split('-');
@@ -822,14 +911,29 @@ async function startServer() {
     if (role === 'technician') {
       const existingTech = db.technicians.find((t: Technician) => t.user_id === user.id);
       if (!existingTech) {
-        db.technicians.push({
+        const newTech = {
           id: `tech-${Date.now()}`,
           user_id: user.id,
           name: user.name,
           email: user.email,
           skill_tags: ['broken_lights', 'plumbing', 'wifi_outage', 'security', 'structural', 'others'],
           current_load: 0
-        });
+        };
+        db.technicians.push(newTech);
+
+        const pool = getPgPool();
+        if (pool) {
+          try {
+            await pool.query(
+              `INSERT INTO technicians (id, user_id, name, skill_tags, current_load) 
+               VALUES ($1, $2, $3, $4, 0)
+               ON CONFLICT (id) DO NOTHING`,
+              [newTech.id, newTech.user_id, newTech.name, newTech.skill_tags]
+            );
+          } catch (err) {
+            console.error('[PostgreSQL Error] Failed to insert swapped technician:', err);
+          }
+        }
       }
     }
 
@@ -838,8 +942,11 @@ async function startServer() {
     // Also sync to PostgreSQL if pool is active
     const pool = getPgPool();
     if (pool) {
-      pool.query('UPDATE users SET role = $1 WHERE id = $2', [role, userId])
-        .catch(err => console.error('[PostgreSQL Error] Failed to update user role:', err));
+      try {
+        await pool.query('UPDATE users SET role = $1 WHERE id = $2', [role, userId]);
+      } catch (err) {
+        console.error('[PostgreSQL Error] Failed to update user role:', err);
+      }
     }
 
     res.json({ success: true, user });
@@ -1761,12 +1868,24 @@ Output your decision as a strict JSON object (no markdown, no quotes, just raw J
     }
 
     const { id } = req.params;
-    const { status, technician_id, comment_text, photo_proof } = req.body;
+    const { status, technician_id, comment_text, photo_proof, voice_url } = req.body;
 
     if (!status) return res.status(400).json({ error: 'Status is required' });
 
     const report = db.reports.find((r: Report) => r.id === id);
     if (!report) return res.status(404).json({ error: 'Report not found' });
+
+    // Strict assigned-technician check
+    if (user.role === 'technician') {
+      const tech = db.technicians.find((t: Technician) => t.user_id === user.id);
+      if (!tech) {
+        return res.status(403).json({ error: 'Access Denied: Technician profile not found.' });
+      }
+      const activeAsg = db.assignments.find((a: Assignment) => a.report_id === id && !a.resolved_at);
+      if (!activeAsg || activeAsg.technician_id !== tech.id) {
+        return res.status(403).json({ error: 'Access Denied: You are not assigned to this work order.' });
+      }
+    }
 
     const prevStatus = report.status;
     report.status = status;
@@ -1786,6 +1905,9 @@ Output your decision as a strict JSON object (no markdown, no quotes, just raw J
 
       if (photo_proof) {
         report.photo_url = photo_proof; // update with resolved photo
+      }
+      if (voice_url) {
+        report.voice_url = voice_url; // update with voice proof
       }
     }
 
@@ -1893,20 +2015,13 @@ Keep your response to exactly 1 or 2 concise, reassuring sentences. Do not use g
       try {
         console.log(`[PostgreSQL Status Update] Syncing report status change to "${status}"...`);
         
-        // 1. Update report status and photo url
-        if (photo_proof) {
-          await pool.query(
-            `UPDATE reports SET status = $1, photo_url = $2 WHERE id = $3;`,
-            [status, photo_proof, id]
-          );
-        } else {
-          await pool.query(
-            `UPDATE reports SET status = $1 WHERE id = $2;`,
-            [status, id]
-          );
-        }
+        // Update report status, photo_url, voice_url
+        await pool.query(
+          `UPDATE reports SET status = $1, photo_url = COALESCE($2, photo_url), voice_url = COALESCE($3, voice_url) WHERE id = $4;`,
+          [status, photo_proof || null, voice_url || null, id]
+        );
 
-        // 2. If resolved, close assignments and decrement load
+        // If resolved, close assignments and decrement load
         if (status === 'resolved') {
           const assignRes = await pool.query(
             `SELECT technician_id FROM assignments WHERE report_id = $1 AND resolved_at IS NULL LIMIT 1;`,
@@ -1925,7 +2040,7 @@ Keep your response to exactly 1 or 2 concise, reassuring sentences. Do not use g
           }
         }
 
-        // 3. Insert update comment
+        // Insert update comment
         await pool.query(
           `INSERT INTO comments (id, report_id, user_id, user_name, user_role, text)
            VALUES ($1, $2, $3, $4, $5, $6);`,
@@ -1939,7 +2054,7 @@ Keep your response to exactly 1 or 2 concise, reassuring sentences. Do not use g
           ]
         );
 
-        // 4. Insert notifications
+        // Insert notifications in PG
         // Notify Student
         await pool.query(
           `INSERT INTO notifications (id, user_id, title, message, type, reference_id)

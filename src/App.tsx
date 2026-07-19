@@ -339,6 +339,31 @@ export default function App() {
   // Comment API call
   const handleAddComment = async (reportId: string, text: string) => {
     if (!currentUser) return;
+    
+    // Save previous reports in case of rollback
+    const previousReports = [...reports];
+    
+    // Optimistically add comment to current state
+    setReports(prev => prev.map(r => {
+      if (r.id === reportId) {
+        const currentComments = r.comments || [];
+        const optimisticComment = {
+          id: `cmt-optimistic-${Date.now()}`,
+          report_id: reportId,
+          user_id: currentUser.id,
+          user_name: currentUser.name,
+          user_role: currentUser.role,
+          text,
+          created_at: new Date().toISOString()
+        };
+        return {
+          ...r,
+          comments: [...currentComments, optimisticComment]
+        };
+      }
+      return r;
+    }));
+
     try {
       const res = await fetch(`/api/reports/${reportId}/comments`, {
         method: 'POST',
@@ -352,14 +377,27 @@ export default function App() {
       });
       if (res.ok) {
         fetchReports();
+      } else {
+        setReports(previousReports);
       }
     } catch (e) {
+      setReports(previousReports);
       console.error('Cannot post comments offline');
     }
   };
 
   // Admin Assignment API call
   const handleAssignTechnician = async (reportId: string, technicianId: string) => {
+    const previousReports = [...reports];
+    
+    // Optimistically update status to 'assigned' in frontend
+    setReports(prev => prev.map(r => {
+      if (r.id === reportId) {
+        return { ...r, status: 'assigned' };
+      }
+      return r;
+    }));
+
     try {
       const res = await fetch(`/api/reports/${reportId}/assign`, {
         method: 'POST',
@@ -372,16 +410,32 @@ export default function App() {
       if (res.ok) {
         fetchReports();
       } else {
+        setReports(previousReports);
         const d = await res.json();
         alert(d.error || 'Failed to assign technician');
       }
     } catch (e) {
+      setReports(previousReports);
       alert('Error updating assignment. Try again once online.');
     }
   };
 
   // Status Change API call
-  const handleUpdateStatus = async (reportId: string, status: ReportStatus, commentText?: string, photoProof?: string) => {
+  const handleUpdateStatus = async (reportId: string, status: ReportStatus, commentText?: string, photoProof?: string, voiceProof?: string) => {
+    // 1. Optimistic Update
+    const previousReports = [...reports];
+    setReports(prev => prev.map(r => {
+      if (r.id === reportId) {
+        return { 
+          ...r, 
+          status, 
+          photo_url: photoProof || r.photo_url,
+          voice_url: voiceProof || r.voice_url
+        };
+      }
+      return r;
+    }));
+
     try {
       const res = await fetch(`/api/reports/${reportId}/status`, {
         method: 'PUT',
@@ -393,16 +447,21 @@ export default function App() {
           status,
           technician_id: currentUser?.role === 'technician' ? currentUser.id : undefined,
           comment_text: commentText,
-          photo_proof: photoProof
+          photo_proof: photoProof,
+          voice_url: voiceProof
         })
       });
       if (res.ok) {
         fetchReports();
       } else {
+        // Rollback
+        setReports(previousReports);
         const d = await res.json();
         alert(d.error || 'Failed to update status');
       }
     } catch (e) {
+      // Rollback
+      setReports(previousReports);
       alert('Error updating status. Connection unavailable.');
     }
   };
@@ -656,12 +715,13 @@ export default function App() {
                               )}
                               {matchedReport.status === 'in_progress' && (
                                 <button
-                                  onClick={async () => {
-                                    await handleUpdateStatus(matchedReport.id, 'resolved');
+                                  onClick={() => {
+                                    setShowNotificationsPanel(false);
+                                    handleSelectReport(matchedReport);
                                   }}
                                   className="text-[9px] bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-2.5 py-1 rounded-md shadow-xs transition-all flex items-center gap-1 cursor-pointer"
                                 >
-                                  ✅ Complete Work
+                                  ✅ View Task to Complete
                                 </button>
                               )}
                             </div>

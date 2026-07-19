@@ -5,7 +5,7 @@ import { Report, ReportStatus } from '../types';
 interface TechnicianViewProps {
   technicianUserId: string;
   reports: Report[];
-  onUpdateStatus: (reportId: string, status: ReportStatus, commentText?: string, photoProof?: string) => Promise<void>;
+  onUpdateStatus: (reportId: string, status: ReportStatus, commentText?: string, photoProof?: string, voiceProof?: string) => Promise<void>;
 }
 
 export default function TechnicianView({ technicianUserId, reports, onUpdateStatus }: TechnicianViewProps) {
@@ -17,9 +17,81 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Voice recording states
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingDuration, setRecordingDuration] = useState(0);
+  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
+  const [timerInterval, setTimerInterval] = useState<NodeJS.Timeout | null>(null);
+  const [voiceBase64, setVoiceBase64] = useState<string | undefined>(undefined);
+
   useEffect(() => {
     fetchAssignedQueue();
   }, [reports, technicianUserId]);
+
+  // Cleanup timers on unmount
+  useEffect(() => {
+    return () => {
+      if (timerInterval) {
+        clearInterval(timerInterval);
+      }
+    };
+  }, [timerInterval]);
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      const chunks: Blob[] = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          chunks.push(e.data);
+        }
+      };
+
+      recorder.onstop = () => {
+        const audioBlob = new Blob(chunks, { type: 'audio/webm' });
+        const reader = new FileReader();
+        reader.readAsDataURL(audioBlob);
+        reader.onloadend = () => {
+          const base64 = reader.result as string;
+          setVoiceBase64(base64);
+        };
+        stream.getTracks().forEach((track) => track.stop());
+      };
+
+      recorder.start();
+      setMediaRecorder(recorder);
+      setIsRecording(true);
+      setRecordingDuration(0);
+
+      const interval = setInterval(() => {
+        setRecordingDuration((prev) => prev + 1);
+      }, 1000);
+      setTimerInterval(interval);
+      setError(null);
+    } catch (err) {
+      console.error('Error starting audio recording:', err);
+      setError('Could not access microphone. Please ensure microphone permissions are granted.');
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorder && isRecording) {
+      mediaRecorder.stop();
+      setIsRecording(false);
+      if (timerInterval) {
+        clearInterval(timerInterval);
+        setTimerInterval(null);
+      }
+    }
+  };
+
+  const formatDuration = (sec: number) => {
+    const mins = Math.floor(sec / 60);
+    const secs = sec % 60;
+    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+  };
 
   const fetchAssignedQueue = async () => {
     // Filter reports that are assigned to this technician.
@@ -82,10 +154,11 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
     setError(null);
 
     try {
-      await onUpdateStatus(selectedReport.id, 'resolved', commentText, photoProof);
+      await onUpdateStatus(selectedReport.id, 'resolved', commentText, photoProof, voiceBase64);
       setSelectedReport(null);
       setCommentText('');
       setPhotoProof(undefined);
+      setVoiceBase64(undefined);
       fetchAssignedQueue();
     } catch (err: any) {
       setError(err.message || 'Failed to submit resolution.');
@@ -208,7 +281,7 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
                         onClick={() => handleUpdate(report.id, 'in_progress')}
                         className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-100 disabled:text-slate-400 text-white font-bold text-xs py-2.5 rounded-xl transition-colors cursor-pointer text-center"
                       >
-                        🚀 Inspection Started
+                        🚀 Start Inspection
                       </button>
                     )}
                     {report.status === 'in_progress' && (
@@ -217,7 +290,7 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
                         onClick={() => handleUpdate(report.id, 'resolved')}
                         className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-100 disabled:text-slate-400 text-white font-bold text-xs py-2.5 rounded-xl flex items-center justify-center gap-1 transition-colors cursor-pointer text-center"
                       >
-                        <CheckCircle size={13} /> Task Completed
+                        <CheckCircle size={13} /> Mark as Completed
                       </button>
                     )}
                   </div>
@@ -259,7 +332,7 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
               {/* Repair details */}
               <div>
                 <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                  Explain repairs completed <span className="text-rose-500">*</span>
+                  Describe how the issue was resolved <span className="text-rose-500">*</span>
                 </label>
                 <textarea
                   required
@@ -306,12 +379,56 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
                 </div>
               </div>
 
+              {/* Voice Resolution Proof */}
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                  Add Voice Resolution Note <span className="text-slate-400 font-normal">(Optional)</span>
+                </label>
+                <div className="flex items-center gap-3 bg-slate-50 border border-slate-200/60 p-3 rounded-xl">
+                  {isRecording ? (
+                    <button
+                      type="button"
+                      onClick={stopRecording}
+                      className="flex items-center gap-2 bg-rose-600 hover:bg-rose-500 text-white font-bold text-[11px] px-3 py-1.5 rounded-lg animate-pulse cursor-pointer"
+                    >
+                      <span className="w-2 h-2 bg-white rounded-full animate-ping" />
+                      Stop ({formatDuration(recordingDuration)})
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={startRecording}
+                      className="flex items-center gap-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-[11px] px-3 py-1.5 rounded-lg cursor-pointer"
+                    >
+                      🎙️ Record Voice
+                    </button>
+                  )}
+
+                  {voiceBase64 ? (
+                    <div className="flex-1 flex items-center justify-between text-emerald-700 text-[11px] font-semibold bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-100">
+                      <span>🎙️ Recorded!</span>
+                      <button
+                        type="button"
+                        onClick={() => setVoiceBase64(undefined)}
+                        className="text-[10px] text-rose-500 hover:text-rose-700 font-bold ml-2"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  ) : (
+                    !isRecording && (
+                      <span className="text-[10px] text-slate-400 font-medium italic">No audio recorded</span>
+                    )
+                  )}
+                </div>
+              </div>
+
               <button
                 type="submit"
                 disabled={isSubmitting}
                 className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-100 disabled:text-slate-400 text-white font-bold text-xs py-2.5 rounded-xl transition-colors cursor-pointer text-center"
               >
-                {isSubmitting ? 'Submitting resolution...' : 'Confirm Task Completed (Notifies Admin & Reporters)'}
+                {isSubmitting ? 'Submitting resolution...' : 'Confirm Completion'}
               </button>
             </form>
           </div>
@@ -418,7 +535,7 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
                     }}
                     className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-100 text-white font-bold text-xs py-3 rounded-xl transition-all cursor-pointer text-center shadow-xs"
                   >
-                    🚀 Inspection Started / Start Work
+                    🚀 Start Inspection
                   </button>
                 )}
                 {activeDetailReport.status === 'in_progress' && (
@@ -430,7 +547,7 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
                     }}
                     className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-100 text-white font-bold text-xs py-3 rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer text-center shadow-xs"
                   >
-                    <CheckCircle size={14} /> Task Completed / Fix Issue
+                    <CheckCircle size={14} /> Mark as Completed
                   </button>
                 )}
               </div>
