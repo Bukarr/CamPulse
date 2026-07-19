@@ -246,6 +246,12 @@ export async function syncOfflineActions(token: string, onProgress?: (msg: strin
   let allSuccess = true;
   for (const action of queue) {
     try {
+      if (action.reportId && action.reportId.startsWith('temp-')) {
+        console.warn(`[OfflineQueue] Discarding offline action ${action.id} with unmapped temporary report ID: ${action.reportId}`);
+        removeOfflineAction(action.id);
+        continue;
+      }
+
       let url = '';
       let method = '';
       if (action.type === 'assign') {
@@ -266,6 +272,9 @@ export async function syncOfflineActions(token: string, onProgress?: (msg: strin
       });
 
       if (res.ok) {
+        removeOfflineAction(action.id);
+      } else if (res.status === 404 || res.status === 400) {
+        console.warn(`[OfflineQueue] Discarding offline action ${action.id} due to non-retriable server error: ${res.status}`);
         removeOfflineAction(action.id);
       } else {
         allSuccess = false;

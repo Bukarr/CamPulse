@@ -11,19 +11,18 @@ interface TechnicianViewProps {
 
 export default function TechnicianView({ technicianUserId, reports, onUpdateStatus, onRefresh }: TechnicianViewProps) {
   const [techProfile, setTechProfile] = useState<any>(null);
-  const [selectedReport, setSelectedReport] = useState<Report | null>(null);
   const [activeDetailReportId, setActiveDetailReportId] = useState<string | null>(null);
   const activeDetailReport = reports.find(r => r.id === activeDetailReportId) || null;
   const [updatingReportIds, setUpdatingReportIds] = useState<Record<string, boolean>>({});
-  const [photoProof, setPhotoProof] = useState<string | undefined>(undefined);
-  const [commentText, setCommentText] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Pull-to-Refresh States
   const [touchStart, setTouchStart] = useState<number | null>(null);
   const [pullOffset, setPullOffset] = useState<number>(0);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+
+  // Active Tab: 'active' (assigned or in_progress) vs 'completed' (resolved)
+  const [techTab, setTechTab] = useState<'active' | 'completed'>('active');
 
   const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
     const element = e.currentTarget;
@@ -74,81 +73,46 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
   }, [technicianUserId]);
 
   // Filtering States
-  const [statusFilter, setStatusFilter] = useState<ReportStatus | 'all'>('all');
   const [categoryFilter, setCategoryFilter] = useState<string | 'all'>('all');
 
-  // Derive assignedReports reactively from props and tech profile
-  const assignedReports = reports.filter(r => {
+  // Derive technician's assigned reports
+  const myReports = reports.filter(r => {
     if (techProfile) {
       return r.assigned_technician_id === techProfile.id || r.assigned_technician_name === techProfile.name;
     }
-    // Fallback: show assigned or in-progress while profile is loading
-    return r.status === 'assigned' || r.status === 'in_progress';
+    // Fallback: show assigned or in-progress or resolved while profile is loading
+    return true;
   });
 
-  // Filter based on selected status and category filters
-  const filteredReports = assignedReports.filter(r => {
-    const matchesStatus = statusFilter === 'all' || r.status === statusFilter;
-    const matchesCategory = categoryFilter === 'all' || r.category === categoryFilter;
-    return matchesStatus && matchesCategory;
+  // Split into active and completed assignments
+  const activeAssignments = myReports.filter(r => r.status === 'assigned' || r.status === 'in_progress');
+  const completedAssignments = myReports.filter(r => r.status === 'resolved');
+
+  // Select list based on selected tab
+  const currentTabReports = techTab === 'active' ? activeAssignments : completedAssignments;
+
+  // Filter based on category
+  const filteredReports = currentTabReports.filter(r => {
+    return categoryFilter === 'all' || r.category === categoryFilter;
   });
 
   const handleUpdate = async (reportId: string, nextStatus: ReportStatus) => {
-    if (nextStatus === 'resolved') {
-      setSelectedReport(assignedReports.find(r => r.id === reportId) || null);
-      return;
-    }
-
     setUpdatingReportIds(prev => ({ ...prev, [reportId]: true }));
-    setIsSubmitting(true);
-    try {
-      await onUpdateStatus(reportId, nextStatus);
-    } catch (err) {
-      console.error(err);
-      // Only re-enable on failure
-      setIsSubmitting(false);
-      setUpdatingReportIds(prev => ({ ...prev, [reportId]: false }));
-    }
-  };
-
-  const handleResolveSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedReport) return;
-    if (!commentText.trim() || commentText.length < 10) {
-      setError('Please provide a final repair description of at least 10 characters.');
-      return;
-    }
-
-    setIsSubmitting(true);
     setError(null);
 
     try {
-      await onUpdateStatus(selectedReport.id, 'resolved', commentText, photoProof);
-      setSelectedReport(null);
-      setCommentText('');
-      setPhotoProof(undefined);
+      if (nextStatus === 'resolved') {
+        // Resolve immediately with a clear, automated contextual note as requested for maximum speed
+        await onUpdateStatus(reportId, 'resolved', 'Task completed successfully and verified resolved by the assigned technician.');
+      } else {
+        await onUpdateStatus(reportId, nextStatus);
+      }
     } catch (err: any) {
-      setError(err.message || 'Failed to submit resolution.');
-      // Only re-enable on failure
-      setIsSubmitting(false);
+      console.error(err);
+      setError(err.message || 'Failed to update ticket status.');
+    } finally {
+      setUpdatingReportIds(prev => ({ ...prev, [reportId]: false }));
     }
-  };
-
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (file.size > 2 * 1024 * 1024) {
-      setError('Image is too large. Choose an image under 2MB.');
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setPhotoProof(reader.result as string);
-      setError(null);
-    };
-    reader.readAsDataURL(file);
   };
 
   return (
@@ -178,36 +142,59 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
       )}
 
       {/* Header */}
-      <div>
-        <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2 font-sans">
-          <Wrench className="text-emerald-600" size={20} /> Technician Work Queue
-        </h2>
-        <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mt-1">ABU Samaru Campus Maintenance Assignments</p>
+      <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2">
+        <div>
+          <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2 font-sans">
+            <Wrench className="text-emerald-600 animate-pulse" size={20} /> Technician Dashboard
+          </h2>
+          <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mt-0.5">ABU Samaru Campus Maintenance Assignments</p>
+        </div>
+        {techProfile && (
+          <div className="bg-emerald-50 border border-emerald-100/80 px-2.5 py-1 rounded-full text-[10px] font-bold text-emerald-700 self-start sm:self-auto flex items-center gap-1.5 shadow-2xs">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
+            Specialist: {techProfile.name}
+          </div>
+        )}
+      </div>
+
+      {/* Tab Switcher */}
+      <div className="flex border-b border-slate-200 bg-white rounded-xl p-1 shadow-2xs border">
+        <button
+          onClick={() => setTechTab('active')}
+          className={`flex-1 py-2 text-xs font-bold transition-all rounded-lg text-center cursor-pointer flex items-center justify-center gap-1.5 ${
+            techTab === 'active'
+              ? 'bg-emerald-600 text-white shadow-sm'
+              : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+          }`}
+        >
+          👷 Active Assignments
+          <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-extrabold ${techTab === 'active' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'}`}>
+            {activeAssignments.length}
+          </span>
+        </button>
+        <button
+          onClick={() => setTechTab('completed')}
+          className={`flex-1 py-2 text-xs font-bold transition-all rounded-lg text-center cursor-pointer flex items-center justify-center gap-1.5 ${
+            techTab === 'completed'
+              ? 'bg-emerald-600 text-white shadow-sm'
+              : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+          }`}
+        >
+          ✅ Completed Tasks
+          <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-extrabold ${techTab === 'completed' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'}`}>
+            {completedAssignments.length}
+          </span>
+        </button>
       </div>
 
       {/* Filter Bar */}
       <div className="bg-slate-50 border border-slate-200/80 p-3 rounded-2xl flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
         <div className="flex items-center gap-1.5">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">Filter by:</span>
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">Filter by Category:</span>
         </div>
         <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-          {/* Status Filter */}
-          <div className="flex-1 sm:flex-initial min-w-[120px]">
-            <select
-              id="tech-status-filter"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as any)}
-              className="w-full text-xs bg-white border border-slate-200 px-3 py-1.5 rounded-lg text-slate-600 font-medium focus:outline-hidden focus:ring-1 focus:ring-emerald-500"
-            >
-              <option value="all">All Statuses</option>
-              <option value="assigned">Assigned</option>
-              <option value="in_progress">In Progress</option>
-              <option value="resolved">Resolved</option>
-            </select>
-          </div>
-
           {/* Category Filter */}
-          <div className="flex-1 sm:flex-initial min-w-[120px]">
+          <div className="flex-1 sm:flex-initial min-w-[150px]">
             <select
               id="tech-category-filter"
               value={categoryFilter}
@@ -226,24 +213,36 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
         </div>
       </div>
 
+      {error && (
+        <div className="p-3 bg-rose-50 border border-rose-100 text-xs text-rose-600 rounded-xl font-medium animate-pulse">
+          ⚠️ {error}
+        </div>
+      )}
+
       {/* Task Queue List */}
       <div className="space-y-3">
         <h3 className="text-[10px] font-bold text-slate-400 flex items-center gap-1.5 uppercase tracking-widest font-mono">
-          👷 Assigned Task Feed ({filteredReports.length} Shown / {assignedReports.length} Total)
+          📋 {techTab === 'active' ? 'My Active Work Queue' : 'My Completed Tasks Archive'} ({filteredReports.length} Shown)
         </h3>
 
         {filteredReports.length === 0 ? (
-          <div className="bg-slate-50 border border-slate-200 p-8 rounded-2xl text-center text-slate-400 text-xs font-semibold">
-            {assignedReports.length === 0 
-              ? "🎉 Amazing! Your task queue is completely empty. No current assignments."
-              : "🔍 No tasks match your selected filter criteria."}
+          <div className="bg-white border border-slate-200 p-10 rounded-2xl text-center text-slate-400 text-xs font-semibold shadow-2xs">
+            {currentTabReports.length === 0 
+              ? (techTab === 'active' 
+                  ? "🎉 Amazing! Your active task queue is completely empty. No current assignments." 
+                  : "⌛ You haven't resolved any tasks yet. Complete a task to see it logged here!")
+              : "🔍 No tasks match your selected category filter."}
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {filteredReports.map((report) => (
               <div
                 key={report.id}
-                className="bg-white border border-slate-200/80 p-4 rounded-2xl space-y-3 shadow-xs hover:border-slate-300 transition-colors"
+                className={`bg-white border p-4 rounded-2xl space-y-3 shadow-2xs hover:shadow-xs transition-all duration-300 relative ${
+                  report.status === 'resolved' 
+                    ? 'border-emerald-100 bg-emerald-50/10' 
+                    : 'border-slate-200/80 hover:border-slate-300'
+                }`}
               >
                 {/* Priority and category header */}
                 <div className="flex items-center justify-between">
@@ -253,48 +252,50 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
                       report.priority_score === 3 ? 'bg-amber-50 text-amber-600 border-amber-100' :
                       'bg-emerald-50 text-emerald-600 border-emerald-100'
                     }`}>
-                      Priority P{report.priority_score}
+                      P{report.priority_score}
                     </span>
                     <span className="text-xs font-bold capitalize text-slate-700">
                       {report.category.replace('_', ' ')}
                     </span>
                   </div>
                   <span className={`text-[9px] font-extrabold uppercase px-2.5 py-0.5 rounded-full border ${
-                    report.status === 'in_progress' 
-                      ? 'bg-indigo-50 text-indigo-600 border-indigo-100' 
-                      : 'bg-amber-50 text-amber-600 border-amber-100'
+                    report.status === 'resolved'
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      : report.status === 'in_progress'
+                      ? 'bg-indigo-50 text-indigo-700 border-indigo-200 animate-pulse'
+                      : 'bg-amber-50 text-amber-700 border-amber-200'
                   }`}>
-                    {report.status}
+                    {report.status.replace('_', ' ')}
                   </span>
                 </div>
 
                 {/* Description */}
-                <p className="text-xs text-slate-600 leading-relaxed font-medium">
+                <p className="text-xs text-slate-600 leading-relaxed font-semibold line-clamp-3">
                   "{report.description}"
                 </p>
 
                 {/* Photo summary */}
                 {report.photo_url && (
-                  <div className="rounded-xl overflow-hidden border border-slate-100 max-h-36 shadow-xs">
+                  <div className="rounded-xl overflow-hidden border border-slate-100 max-h-32 shadow-2xs">
                     <img src={report.photo_url} alt="Issue location" className="w-full h-full object-cover" />
                   </div>
                 )}
 
                 {/* Location indicator with directions link */}
-                <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200/50 flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-2 text-slate-500">
-                    <MapPin size={14} className="text-rose-500 shrink-0" />
-                    <span className="truncate max-w-[180px] text-[11px] font-semibold">{report.zone_name}</span>
+                <div className="bg-slate-50 p-2 rounded-xl border border-slate-200/50 flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-1.5 text-slate-500 min-w-0">
+                    <MapPin size={13} className="text-rose-500 shrink-0" />
+                    <span className="truncate text-[10px] font-semibold">{report.zone_name}</span>
                   </div>
                   
-                  {/* Google Maps coordinate link for outdoor route support */}
+                  {/* Google Maps coordinate route support */}
                   <a
                     href={`https://www.google.com/maps/dir/?api=1&destination=${report.lat},${report.lng}`}
                     target="_blank"
                     rel="noreferrer"
-                    className="bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition-colors text-[10px] cursor-pointer"
+                    className="bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold px-2.5 py-1 rounded-lg flex items-center gap-1 transition-colors text-[9px] cursor-pointer"
                   >
-                    <Navigation size={10} /> Route
+                    <Navigation size={9} /> Route
                   </a>
                 </div>
 
@@ -303,152 +304,64 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
                   <button
                     type="button"
                     onClick={() => setActiveDetailReportId(report.id)}
-                    className="w-full text-center text-xs bg-slate-50 hover:bg-slate-100 border border-slate-200/80 hover:border-slate-300 text-slate-700 font-bold py-2 px-4 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                    className="w-full text-center text-[11px] bg-slate-50 hover:bg-slate-100 border border-slate-200/80 hover:border-slate-300 text-slate-600 font-bold py-1.5 px-4 rounded-xl transition-all flex items-center justify-center gap-1 cursor-pointer"
                   >
-                    📖 Open Full Task Details
+                    📖 View Full Ticket Details
                   </button>
 
-                  <div className="flex gap-2">
-                    {report.status === 'assigned' && (
-                      <button
-                        disabled={updatingReportIds[report.id]}
-                        onClick={() => handleUpdate(report.id, 'in_progress')}
-                        className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-100 disabled:text-slate-400 text-white font-bold text-xs py-2.5 rounded-xl transition-colors cursor-pointer text-center flex items-center justify-center gap-1.5"
-                      >
-                        {updatingReportIds[report.id] ? (
-                          <>
-                            <Loader2 size={13} className="animate-spin text-slate-400" />
-                            <span>Starting Work...</span>
-                          </>
-                        ) : (
-                          <>
-                            <span>🚀 Start Work</span>
-                          </>
-                        )}
-                      </button>
-                    )}
-                    {report.status === 'in_progress' && (
-                      <button
-                        disabled={updatingReportIds[report.id]}
-                        onClick={() => handleUpdate(report.id, 'resolved')}
-                        className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-100 disabled:text-slate-400 text-white font-bold text-xs py-2.5 rounded-xl flex items-center justify-center gap-1.5 transition-colors cursor-pointer text-center"
-                      >
-                        {updatingReportIds[report.id] ? (
-                          <>
-                            <Loader2 size={13} className="animate-spin text-slate-400" />
-                            <span>Processing...</span>
-                          </>
-                        ) : (
-                          <>
-                            <CheckCircle size={13} /> Complete Work
-                          </>
-                        )}
-                      </button>
-                    )}
-                  </div>
+                  {report.status !== 'resolved' && (
+                    <div className="flex gap-2">
+                      {report.status === 'assigned' && (
+                        <button
+                          disabled={updatingReportIds[report.id]}
+                          onClick={() => handleUpdate(report.id, 'in_progress')}
+                          className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-100 disabled:text-slate-400 text-white font-bold text-xs py-2 rounded-xl transition-all cursor-pointer text-center flex items-center justify-center gap-1 shadow-2xs active:scale-98"
+                        >
+                          {updatingReportIds[report.id] ? (
+                            <>
+                              <Loader2 size={12} className="animate-spin text-white/50" />
+                              <span>Starting...</span>
+                            </>
+                          ) : (
+                            <>
+                              <span>🚀 Start Work</span>
+                            </>
+                          )}
+                        </button>
+                      )}
+                      
+                      {report.status === 'in_progress' && (
+                        <button
+                          disabled={updatingReportIds[report.id]}
+                          onClick={() => handleUpdate(report.id, 'resolved')}
+                          className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-100 disabled:text-slate-400 text-white font-bold text-xs py-2 rounded-xl flex items-center justify-center gap-1 transition-all cursor-pointer text-center shadow-2xs active:scale-98"
+                        >
+                          {updatingReportIds[report.id] ? (
+                            <>
+                              <Loader2 size={12} className="animate-spin text-white/50" />
+                              <span>Resolving...</span>
+                            </>
+                          ) : (
+                            <>
+                              <CheckCircle size={12} /> completed task?
+                            </>
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {report.status === 'resolved' && (
+                    <div className="text-center text-[10px] text-emerald-600 font-bold bg-emerald-50/50 py-1.5 px-3 rounded-xl border border-emerald-100 flex items-center justify-center gap-1">
+                      <CheckCircle size={11} /> Task Completed & Resolved Successfully
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
           </div>
         )}
       </div>
-
-      {/* Resolution Confirmation Bottom Sheet Modal */}
-      {selectedReport && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-50 flex items-end justify-center p-0 md:p-6 animate-fade-in">
-          <div className="bg-white border border-slate-200 w-full md:max-w-md rounded-t-2xl md:rounded-2xl shadow-2xl p-5 space-y-4 max-h-[85vh] overflow-y-auto animate-slide-up">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-              <div>
-                <h4 className="text-sm font-bold text-slate-800 font-sans">Confirm Inspection Finished</h4>
-                <p className="text-[9px] text-slate-400 font-bold font-mono">TICKET #{selectedReport.id.substring(0, 8)}</p>
-              </div>
-              <button
-                onClick={() => {
-                  setSelectedReport(null);
-                  setPhotoProof(undefined);
-                  setError(null);
-                }}
-                className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-800 font-bold px-2.5 py-1 rounded-lg cursor-pointer transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
-
-            {error && (
-              <div className="p-2.5 bg-rose-50 border border-rose-200 text-xs text-rose-600 rounded-xl font-medium">
-                ⚠️ {error}
-              </div>
-            )}
-
-            <form onSubmit={handleResolveSubmit} className="space-y-4">
-              {/* Repair details */}
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                  Explain repairs completed <span className="text-rose-500">*</span>
-                </label>
-                <textarea
-                  required
-                  rows={3}
-                  value={commentText}
-                  onChange={(e) => setCommentText(e.target.value)}
-                  placeholder="E.g., 'Replaced broken 40W street LED bulb and taped exposed terminal wires. Checked breaker. Fully resolved!'"
-                  className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                />
-                <span className="text-[9px] text-slate-400 font-semibold mt-1 block">Min. 10 characters required.</span>
-              </div>
-
-              {/* Photo Proof */}
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                  Upload Repair Image Proof <span className="text-slate-400 font-normal">(Optional)</span>
-                </label>
-                <div className="flex items-center gap-3">
-                  <label className="flex flex-col items-center justify-center w-20 h-16 rounded-xl border border-dashed border-slate-200 bg-slate-50 text-slate-400 hover:text-slate-600 cursor-pointer text-xs transition-colors hover:border-slate-300">
-                    <Camera size={16} />
-                    <span className="text-[9px] mt-0.5 font-bold">Upload</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handlePhotoUpload}
-                      className="hidden"
-                    />
-                  </label>
-
-                  {photoProof ? (
-                    <div className="relative w-16 h-16 rounded-xl overflow-hidden border border-slate-200 shadow-xs">
-                      <img src={photoProof} alt="Proof" className="w-full h-full object-cover" />
-                      <button
-                        type="button"
-                        onClick={() => setPhotoProof(undefined)}
-                        className="absolute top-0.5 right-0.5 bg-slate-900/80 hover:bg-slate-900 text-white p-0.5 rounded-full text-[8px]"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  ) : (
-                    <span className="text-[9px] text-slate-400 font-medium">Attach a photo showing the resolved issue.</span>
-                  )}
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-100 disabled:text-slate-400 text-white font-bold text-xs py-2.5 rounded-xl transition-colors cursor-pointer text-center flex items-center justify-center gap-1.5"
-              >
-                {isSubmitting ? (
-                  <>
-                    <Loader2 size={13} className="animate-spin text-slate-400" />
-                    <span>Submitting resolution...</span>
-                  </>
-                ) : (
-                  <span>Confirm Task Completed (Notifies Admin & Reporters)</span>
-                )}
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
 
       {/* Task Details Modal */}
       {activeDetailReport && (
@@ -488,7 +401,7 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
               {/* Text Description */}
               <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200/60">
                 <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 font-mono">Report Description</h5>
-                <p className="text-xs text-slate-700 leading-relaxed font-medium">
+                <p className="text-xs text-slate-700 leading-relaxed font-semibold">
                   "{activeDetailReport.description || 'No text description provided.'}"
                 </p>
               </div>
@@ -540,40 +453,52 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
               </div>
 
               {/* Action Buttons inside Modal */}
-              <div className="pt-3 border-t border-slate-100 flex gap-2">
-                {activeDetailReport.status === 'assigned' && (
-                  <button
-                    disabled={updatingReportIds[activeDetailReport.id]}
-                    onClick={async () => {
-                      await handleUpdate(activeDetailReport.id, 'in_progress');
-                    }}
-                    className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-100 disabled:text-slate-400 text-white font-bold text-xs py-3 rounded-xl transition-all cursor-pointer text-center shadow-xs flex items-center justify-center gap-1.5"
-                  >
-                    {updatingReportIds[activeDetailReport.id] ? (
-                      <>
-                        <Loader2 size={14} className="animate-spin text-slate-400" />
-                        <span>Starting Work...</span>
-                      </>
-                    ) : (
-                      <>
-                        <span>🚀 Start Work</span>
-                      </>
-                    )}
-                  </button>
-                )}
-                {activeDetailReport.status === 'in_progress' && (
-                  <button
-                    disabled={updatingReportIds[activeDetailReport.id]}
-                    onClick={() => {
-                      setSelectedReport(activeDetailReport);
-                      setActiveDetailReportId(null);
-                    }}
-                    className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-100 disabled:text-slate-400 text-white font-bold text-xs py-3 rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer text-center shadow-xs"
-                  >
-                    <CheckCircle size={14} /> Complete Work
-                  </button>
-                )}
-              </div>
+              {activeDetailReport.status !== 'resolved' && (
+                <div className="pt-3 border-t border-slate-100 flex gap-2">
+                  {activeDetailReport.status === 'assigned' && (
+                    <button
+                      disabled={updatingReportIds[activeDetailReport.id]}
+                      onClick={async () => {
+                        await handleUpdate(activeDetailReport.id, 'in_progress');
+                        setActiveDetailReportId(null);
+                      }}
+                      className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-100 disabled:text-slate-400 text-white font-bold text-xs py-2.5 rounded-xl transition-all cursor-pointer text-center shadow-xs flex items-center justify-center gap-1.5 active:scale-98"
+                    >
+                      {updatingReportIds[activeDetailReport.id] ? (
+                        <>
+                          <Loader2 size={13} className="animate-spin text-white/50" />
+                          <span>Starting...</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>🚀 Start Work</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+                  {activeDetailReport.status === 'in_progress' && (
+                    <button
+                      disabled={updatingReportIds[activeDetailReport.id]}
+                      onClick={async () => {
+                        await handleUpdate(activeDetailReport.id, 'resolved');
+                        setActiveDetailReportId(null);
+                      }}
+                      className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-100 disabled:text-slate-400 text-white font-bold text-xs py-2.5 rounded-xl flex items-center justify-center gap-1 transition-all cursor-pointer text-center shadow-xs active:scale-98"
+                    >
+                      {updatingReportIds[activeDetailReport.id] ? (
+                        <>
+                          <Loader2 size={13} className="animate-spin text-white/50" />
+                          <span>Resolving...</span>
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle size={13} /> completed task?
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>

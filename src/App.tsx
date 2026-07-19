@@ -4,7 +4,6 @@ import BottomNav from './components/BottomNav';
 import { Wifi, WifiOff, LogOut, ShieldCheck, Mail, Sparkles, Database, Bell, BellRing, X, ChevronRight, Check } from 'lucide-react';
 import { Notification } from './types';
 import { syncOfflineReports, syncOfflineActions, addOfflineAction } from './utils/offlineQueue';
-import { shouldQueueOfflineAction } from './utils/requestFailure';
 
 const LoginView = React.lazy(() => import('./components/LoginView'));
 const MapComponent = React.lazy(() => import('./components/MapComponent'));
@@ -472,6 +471,18 @@ export default function App() {
       assigned_technician_name: techName
     } : r));
 
+    if (!navigator.onLine) {
+      addOfflineAction({
+        id: `act-${Date.now()}`,
+        type: 'assign',
+        reportId,
+        payload: { technician_id: technicianId },
+        created_at: new Date().toISOString()
+      });
+      alert('🛜 Offline mode detected! This assignment has been queued in your device\'s local storage and will automatically synchronize with ABU servers once your internet connection is restored.');
+      return;
+    }
+
     try {
       const activeToken = token || localStorage.getItem('campulse-token') || '';
       const res = await fetch(`/api/reports/${reportId}/assign`, {
@@ -498,16 +509,9 @@ export default function App() {
           errorMsg = d.error || errorMsg;
         } catch (_) {}
         alert(errorMsg);
-        return;
       }
-    } catch (e: any) {
-      const parsedError = e?.message ? e.message : String(e);
-      const shouldOfflineQueue = shouldQueueOfflineAction(e, undefined, parsedError);
-      if (!shouldOfflineQueue) {
-        alert(parsedError || 'Unable to assign technician right now.');
-        return;
-      }
-
+    } catch (e) {
+      // Queue action offline and don't rollback if it was a network error
       console.warn('Network assignment request failed, caching offline:', e);
       addOfflineAction({
         id: `act-${Date.now()}`,
@@ -529,6 +533,23 @@ export default function App() {
     setReports(prev => prev.map(r => r.id === reportId ? { ...r, status } : r));
 
     const activeToken = token || localStorage.getItem('campulse-token') || '';
+
+    if (!navigator.onLine) {
+      addOfflineAction({
+        id: `act-${Date.now()}`,
+        type: 'status_change',
+        reportId,
+        payload: {
+          status,
+          technician_id: currentUser?.role === 'technician' ? currentUser.id : undefined,
+          comment_text: commentText,
+          photo_proof: photoProof
+        },
+        created_at: new Date().toISOString()
+      });
+      alert('🛜 Offline mode detected! This status update has been cached locally and will automatically synchronize with Ahmadu Bello University servers once you are back online.');
+      return;
+    }
 
     try {
       const res = await fetch(`/api/reports/${reportId}/status`, {
@@ -560,16 +581,12 @@ export default function App() {
           errorMsg = d.error || errorMsg;
         } catch (_) {}
         alert(errorMsg);
-        return;
+        throw new Error(errorMsg);
       }
     } catch (e: any) {
-      const parsedError = e?.message ? e.message : String(e);
-      const shouldOfflineQueue = shouldQueueOfflineAction(e, undefined, parsedError);
-      if (!shouldOfflineQueue) {
-        alert(parsedError || 'Unable to update status right now.');
-        return;
+      if (e.message && (e.message.includes('Failed to update status') || e.message.includes('Guard') || e.message.includes('Denied'))) {
+        throw e;
       }
-
       console.warn('Network status update failed, caching offline:', e);
       addOfflineAction({
         id: `act-${Date.now()}`,

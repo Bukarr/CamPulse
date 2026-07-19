@@ -12,13 +12,10 @@ export interface ReportData {
  */
 export class AIParsingService {
   private gemmaApiUrl: string;
-  private hfToken: string;
-  private model: string;
 
   constructor() {
+    // Read from process.env if available, otherwise fallback
     this.gemmaApiUrl = (typeof process !== 'undefined' && process.env && process.env.GEMMA_API_URL) || '';
-    this.hfToken = (typeof process !== 'undefined' && process.env && (process.env.HF_API_TOKEN || process.env.HUGGINGFACE_API_KEY)) || '';
-    this.model = (typeof process !== 'undefined' && process.env && process.env.GEMMA_MODEL) || 'google/gemma-4-31B-it:cerebras';
   }
 
   /**
@@ -34,13 +31,13 @@ export class AIParsingService {
       sentiment: 'neutral'
     };
 
-    if (!this.gemmaApiUrl || !this.hfToken) {
-      console.warn('[AIParsingService] GEMMA_API_URL or HF_API_TOKEN not configured. Returning fallback ReportData.');
+    if (!this.gemmaApiUrl) {
+      console.warn('[AIParsingService] GEMMA_API_URL not configured. Returning fallback ReportData.');
       return defaultData;
     }
 
     try {
-      console.log(`[AIParsingService] Routing request to Gemma 4 via HF-compatible endpoint at: ${this.gemmaApiUrl}`);
+      console.log(`[AIParsingService] Direct routing request to self-hosted Gemma 4 at: ${this.gemmaApiUrl}`);
       const systemInstruction = `You are the Gemma 4 campus maintenance intake engine for Ahmadu Bello University, Zaria.
 Analyze the user's free-text maintenance report and extract the following fields:
 - category: MUST be one of: "broken_lights", "plumbing", "wifi_outage", "security", "structural", or "others".
@@ -61,12 +58,10 @@ Return ONLY a strict JSON object matching this schema, without any markdown form
       let body: any = {};
       const headers: any = { 'Content-Type': 'application/json' };
 
-      headers.Authorization = `Bearer ${this.hfToken}`;
-
       if (endpoint.includes('/v1')) {
         targetUrl = endpoint.endsWith('/') ? `${endpoint}chat/completions` : `${endpoint}/chat/completions`;
         body = {
-          model: this.model,
+          model: 'gemma4',
           messages: [
             { role: 'system', content: systemInstruction },
             { role: 'user', content: rawText }
@@ -135,7 +130,7 @@ Return ONLY a strict JSON object matching this schema, without any markdown form
       };
 
     } catch (err) {
-      console.error('[AIParsingService Error] Gemma 4 request failed. Using fallback:', err);
+      console.error('[AIParsingService Error] Connection to local Gemma 4 failed. Using fallback:', err);
       return defaultData;
     }
   }
