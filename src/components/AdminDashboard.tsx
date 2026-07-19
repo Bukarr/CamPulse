@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { z } from 'zod';
 import { Shield, Wrench, Clock, AlertTriangle, CheckSquare, Search, Filter, ArrowUpDown, ChevronRight, BarChart3, Users } from 'lucide-react';
 import { 
   BarChart, 
@@ -20,8 +19,6 @@ interface AdminDashboardProps {
   onUpdateStatus: (reportId: string, status: ReportStatus) => Promise<void>;
   technicians?: Technician[];
   onRegisterTechnician?: (newTech: Technician) => void;
-  token?: string | null;
-  isInitialLoading?: boolean;
 }
 
 const CATEGORY_LABELS: Record<ReportCategory, string> = {
@@ -48,26 +45,12 @@ const PRIORITY_COLORS: Record<number, string> = {
   5: 'bg-rose-50 text-rose-600 border-rose-200/60 shadow-xs animate-pulse'
 };
 
-const technicianSchema = z.object({
-  name: z.string()
-    .trim()
-    .min(2, { message: 'Name must be at least 2 characters long.' })
-    .max(100, { message: 'Name cannot exceed 100 characters.' }),
-  email: z.string()
-    .trim()
-    .email({ message: 'Please enter a valid email address.' }),
-  skill_tags: z.array(z.string())
-    .min(1, { message: 'Please assign at least one category specialty tag.' }),
-});
-
 export default function AdminDashboard({ 
   reports, 
   onAssignTechnician, 
   onUpdateStatus,
   technicians: propTechnicians = [],
-  onRegisterTechnician,
-  token,
-  isInitialLoading
+  onRegisterTechnician
 }: AdminDashboardProps) {
   const [technicians, setTechnicians] = useState<Technician[]>(propTechnicians);
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
@@ -80,7 +63,6 @@ export default function AdminDashboard({
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [stats, setStats] = useState<any>({ total: 0, resolved: 0, open: 0, avgResolutionTimeHours: 24 });
   const [assigningId, setAssigningId] = useState<string | null>(null);
-  const [pendingStatusUpdates, setPendingStatusUpdates] = useState<Record<string, boolean>>({});
 
   // Sync technicians prop with local state instantly
   useEffect(() => {
@@ -107,36 +89,27 @@ export default function AdminDashboard({
 
   const handleRegisterTechnician = async (e: React.FormEvent) => {
     e.preventDefault();
-    setTechRegSuccess(null);
-    setTechRegError(null);
-
-    const validation = technicianSchema.safeParse({
-      name: newTechName,
-      email: newTechEmail,
-      skill_tags: newTechSkills
-    });
-
-    if (!validation.success) {
-      const errorMsg = validation.error.issues.map(err => err.message).join(' ');
-      setTechRegError(errorMsg);
+    if (!newTechName.trim() || !newTechEmail.trim()) {
+      setTechRegError('Please provide both name and email.');
+      return;
+    }
+    if (newTechSkills.length === 0) {
+      setTechRegError('Please assign at least one category specialty tag.');
       return;
     }
 
-    const validData = validation.data;
     setIsRegisteringTech(true);
+    setTechRegSuccess(null);
+    setTechRegError(null);
 
     try {
-      const activeToken = token || localStorage.getItem('campulse-token') || '';
       const res = await fetch('/api/admin/technicians', {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${activeToken}`
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: validData.name,
-          email: validData.email,
-          skill_tags: validData.skill_tags
+          name: newTechName.trim(),
+          email: newTechEmail.trim(),
+          skill_tags: newTechSkills
         })
       });
 
@@ -231,7 +204,6 @@ export default function AdminDashboard({
   const handleAssignment = async (techId: string) => {
     if (!selectedReport) return;
     setAssigningId(techId);
-    setPendingStatusUpdates(prev => ({ ...prev, [selectedReport.id]: true }));
     try {
       await onAssignTechnician(selectedReport.id, techId);
       setSelectedReport(null);
@@ -240,30 +212,6 @@ export default function AdminDashboard({
       console.error(err);
     } finally {
       setAssigningId(null);
-      setPendingStatusUpdates(prev => {
-        const copy = { ...prev };
-        delete copy[selectedReport.id];
-        return copy;
-      });
-    }
-  };
-
-  const handleStatusChange = async (reportId: string, status: ReportStatus) => {
-    setPendingStatusUpdates(prev => ({ ...prev, [reportId]: true }));
-    // Optimistically update selected report status in case modal stays open
-    if (selectedReport && selectedReport.id === reportId) {
-      setSelectedReport(prev => prev ? { ...prev, status } : null);
-    }
-    try {
-      await onUpdateStatus(reportId, status);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setPendingStatusUpdates(prev => {
-        const copy = { ...prev };
-        delete copy[reportId];
-        return copy;
-      });
     }
   };
 
@@ -709,19 +657,7 @@ export default function AdminDashboard({
           </div>
         </div>
 
-        {isInitialLoading && filteredReports.length === 0 ? (
-          <div className="p-4 space-y-3 animate-pulse">
-            {[1, 2, 3, 4].map((n) => (
-              <div key={n} className="flex items-start gap-3 p-3 bg-slate-50 border border-slate-100 rounded-xl">
-                <div className="h-5 w-8 bg-slate-200 rounded-md" />
-                <div className="flex-1 space-y-2">
-                  <div className="h-4 w-1/3 bg-slate-200 rounded-md" />
-                  <div className="h-3.5 w-full bg-slate-200 rounded-md" />
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : filteredReports.length === 0 ? (
+        {filteredReports.length === 0 ? (
           <div className="p-8 text-center text-slate-400 text-xs font-sans">
             No report tickets match the selected filters.
           </div>
@@ -759,21 +695,14 @@ export default function AdminDashboard({
                     </div>
                     <div className="flex items-center gap-2.5">
                       <span className="font-semibold text-slate-500">🔺 {report.upvotes} upvotes</span>
-                      {pendingStatusUpdates[report.id] ? (
-                        <span className="flex items-center gap-1.5 text-[8px] bg-slate-50 text-slate-500 border border-slate-200 px-1.5 py-0.5 rounded uppercase font-bold animate-pulse">
-                          <span className="w-1.5 h-1.5 border-t border-slate-500 rounded-full animate-spin shrink-0" style={{ borderRightColor: 'transparent', borderWidth: '1.5px' }} />
-                          Updating...
-                        </span>
-                      ) : (
-                        <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold uppercase ${
-                          report.status === 'resolved' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' :
-                          report.status === 'in_progress' ? 'bg-indigo-50 text-indigo-600 border border-indigo-100' :
-                          report.status === 'assigned' ? 'bg-amber-50 text-amber-600 border border-amber-100' :
-                          'bg-rose-50 text-rose-600 border border-rose-100'
-                        }`}>
-                          {STATUS_LABELS[report.status]}
-                        </span>
-                      )}
+                      <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold uppercase ${
+                        report.status === 'resolved' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' :
+                        report.status === 'in_progress' ? 'bg-indigo-50 text-indigo-600 border border-indigo-100' :
+                        report.status === 'assigned' ? 'bg-amber-50 text-amber-600 border border-amber-100' :
+                        'bg-rose-50 text-rose-600 border border-rose-100'
+                      }`}>
+                        {STATUS_LABELS[report.status]}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -926,18 +855,16 @@ export default function AdminDashboard({
                 </div>
                 <div className="flex gap-2">
                   <button
-                    disabled={pendingStatusUpdates[selectedReport.id]}
-                    onClick={() => handleStatusChange(selectedReport.id, 'in_progress')}
-                    className="bg-indigo-50 hover:bg-indigo-100 disabled:bg-slate-50 disabled:text-slate-400 text-indigo-600 border border-indigo-100 text-xs py-2 px-3 rounded-xl flex-1 font-bold transition-all cursor-pointer animate-fade-in"
+                    onClick={() => onUpdateStatus(selectedReport.id, 'in_progress')}
+                    className="bg-indigo-50 hover:bg-indigo-100 text-indigo-600 border border-indigo-100 text-xs py-2 px-3 rounded-xl flex-1 font-bold transition-all cursor-pointer"
                   >
-                    {pendingStatusUpdates[selectedReport.id] ? 'Updating...' : 'Set In-Progress'}
+                    Set In-Progress
                   </button>
                   <button
-                    disabled={pendingStatusUpdates[selectedReport.id]}
-                    onClick={() => handleStatusChange(selectedReport.id, 'resolved')}
-                    className="bg-emerald-50 hover:bg-emerald-100 disabled:bg-slate-50 disabled:text-slate-400 text-emerald-600 border border-emerald-100 text-xs py-2 px-3 rounded-xl flex-1 font-bold transition-all cursor-pointer animate-fade-in"
+                    onClick={() => onUpdateStatus(selectedReport.id, 'resolved')}
+                    className="bg-emerald-50 hover:bg-emerald-100 text-emerald-600 border border-emerald-100 text-xs py-2 px-3 rounded-xl flex-1 font-bold transition-all cursor-pointer"
                   >
-                    {pendingStatusUpdates[selectedReport.id] ? 'Updating...' : 'Set Resolved'}
+                    Set Resolved
                   </button>
                 </div>
               </div>

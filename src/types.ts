@@ -33,13 +33,6 @@ export interface Report {
   gemma_rank_score?: number;
   voice_url?: string;
   voice_interpretation?: string;
-  assigned_technician_id?: string;
-  assigned_technician_name?: string;
-  severity?: string;
-  location_hint?: string;
-  sentiment?: string;
-  report_count?: number;
-  triage_analysis?: string;
 }
 
 export interface Technician {
@@ -100,12 +93,3 @@ export interface OfflineReportQueueItem {
   is_anonymous: boolean;
   created_at: string;
 }
-
-export interface OfflineAction {
-  id: string;
-  type: 'assign' | 'status_change';
-  reportId: string;
-  payload: any;
-  created_at: string;
-}
-

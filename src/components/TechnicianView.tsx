@@ -1,374 +1,142 @@
 import React, { useState, useEffect } from 'react';
-import { Wrench, CheckCircle, Navigation, MapPin, Camera, Clock, AlertTriangle, Loader2, Mic, Trash2, Image, Square } from 'lucide-react';
+import { Wrench, CheckCircle, Navigation, MapPin, Camera, Clock, AlertTriangle } from 'lucide-react';
 import { Report, ReportStatus } from '../types';
 
 interface TechnicianViewProps {
   technicianUserId: string;
   reports: Report[];
-  onUpdateStatus: (reportId: string, status: ReportStatus, commentText?: string, photoProof?: string, voiceProof?: string) => Promise<void>;
-  onRefresh?: () => Promise<void>;
-  isInitialLoading?: boolean;
+  onUpdateStatus: (reportId: string, status: ReportStatus, commentText?: string, photoProof?: string) => Promise<void>;
 }
 
-export default function TechnicianView({ technicianUserId, reports, onUpdateStatus, onRefresh, isInitialLoading }: TechnicianViewProps) {
-  const [techProfile, setTechProfile] = useState<any>(null);
-  const [activeDetailReportId, setActiveDetailReportId] = useState<string | null>(null);
-  const activeDetailReport = reports.find(r => r.id === activeDetailReportId) || null;
-  const [updatingReportIds, setUpdatingReportIds] = useState<Record<string, boolean>>({});
+export default function TechnicianView({ technicianUserId, reports, onUpdateStatus }: TechnicianViewProps) {
+  const [assignedReports, setAssignedReports] = useState<Report[]>([]);
+  const [selectedReport, setSelectedReport] = useState<Report | null>(null);
+  const [activeDetailReport, setActiveDetailReport] = useState<Report | null>(null);
+  const [photoProof, setPhotoProof] = useState<string | undefined>(undefined);
+  const [commentText, setCommentText] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Resolution Dialogue modal states
-  const [resolvingReportId, setResolvingReportId] = useState<string | null>(null);
-  const [resolutionComment, setResolutionComment] = useState('');
-  const [resolutionPhoto, setResolutionPhoto] = useState<string | null>(null);
-  const [resolutionVoice, setResolutionVoice] = useState<string | null>(null);
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordingDuration, setRecordingDuration] = useState(0);
-  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
-  const [timerInterval, setTimerInterval] = useState<any | null>(null);
+  useEffect(() => {
+    fetchAssignedQueue();
+  }, [reports, technicianUserId]);
 
-  const formatDuration = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
-  };
-
-  const startRecording = async () => {
+  const fetchAssignedQueue = async () => {
+    // Filter reports that are assigned to this technician.
+    // In our local mock, prof/tech relationship is bridged by assignments.
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
-      const chunks: Blob[] = [];
-
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) {
-          chunks.push(e.data);
-        }
-      };
-
-      recorder.onstop = () => {
-        const audioBlob = new Blob(chunks, { type: 'audio/webm' });
-        const reader = new FileReader();
-        reader.readAsDataURL(audioBlob);
-        reader.onloadend = () => {
-          setResolutionVoice(reader.result as string);
-        };
-        stream.getTracks().forEach((track) => track.stop());
-      };
-
-      recorder.start();
-      setMediaRecorder(recorder);
-      setIsRecording(true);
-      setRecordingDuration(0);
-
-      const interval = setInterval(() => {
-        setRecordingDuration((prev) => prev + 1);
-      }, 1000);
-      setTimerInterval(interval);
-    } catch (err) {
-      console.error('Error starting audio recording:', err);
-      alert('Could not access microphone. Please ensure microphone permissions are granted.');
+      const res = await fetch('/api/technicians');
+      const techs = await res.json();
+      const tech = techs.find((t: any) => t.user_id === technicianUserId);
+      
+      if (tech) {
+        // Find reports assigned to this tech id
+        const reportsRes = await fetch('/api/reports');
+        const allReports: Report[] = await reportsRes.json();
+        const activeTechReports = allReports.filter(
+          r => r.status !== 'resolved' && reports.some(or => or.id === r.id && or.status === r.status)
+        );
+        
+        // Let's filter in memory against our reports prop
+        const filtered = reports.filter(r => 
+          (r.status === 'assigned' || r.status === 'in_progress')
+        );
+        setAssignedReports(filtered);
+      } else {
+        // Fallback for demo/testing: show all assigned/in_progress reports
+        const filtered = reports.filter(r => r.status === 'assigned' || r.status === 'in_progress');
+        setAssignedReports(filtered);
+      }
+    } catch (e) {
+      const filtered = reports.filter(r => r.status === 'assigned' || r.status === 'in_progress');
+      setAssignedReports(filtered);
     }
   };
 
-  const stopRecording = () => {
-    if (mediaRecorder && isRecording) {
-      mediaRecorder.stop();
-      setIsRecording(false);
-      if (timerInterval) {
-        clearInterval(timerInterval);
-        setTimerInterval(null);
-      }
+  const handleUpdate = async (reportId: string, nextStatus: ReportStatus) => {
+    if (nextStatus === 'resolved') {
+      setSelectedReport(assignedReports.find(r => r.id === reportId) || null);
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      await onUpdateStatus(reportId, nextStatus);
+      fetchAssignedQueue();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleResolveSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedReport) return;
+    if (!commentText.trim() || commentText.length < 10) {
+      setError('Please provide a final repair description of at least 10 characters.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    setError(null);
+
+    try {
+      await onUpdateStatus(selectedReport.id, 'resolved', commentText, photoProof);
+      setSelectedReport(null);
+      setCommentText('');
+      setPhotoProof(undefined);
+      fetchAssignedQueue();
+    } catch (err: any) {
+      setError(err.message || 'Failed to submit resolution.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    if (file.size > 2 * 1024 * 1024) {
+      setError('Image is too large. Choose an image under 2MB.');
+      return;
+    }
+
     const reader = new FileReader();
     reader.onloadend = () => {
-      setResolutionPhoto(reader.result as string);
+      setPhotoProof(reader.result as string);
+      setError(null);
     };
     reader.readAsDataURL(file);
   };
 
-  const executeResolution = async () => {
-    if (!resolvingReportId) return;
-    setUpdatingReportIds(prev => ({ ...prev, [resolvingReportId]: true }));
-    setError(null);
-
-    try {
-      await onUpdateStatus(
-        resolvingReportId, 
-        'resolved', 
-        resolutionComment || 'Task completed successfully and verified resolved by the assigned technician.',
-        resolutionPhoto || undefined,
-        resolutionVoice || undefined
-      );
-      setResolvingReportId(null);
-      setResolutionComment('');
-      setResolutionPhoto(null);
-      setResolutionVoice(null);
-      setActiveDetailReportId(null);
-    } catch (err: any) {
-      console.error(err);
-      setError(err.message || 'Failed to update ticket status.');
-    } finally {
-      setUpdatingReportIds(prev => ({ ...prev, [resolvingReportId]: false }));
-    }
-  };
-
-  useEffect(() => {
-    return () => {
-      if (timerInterval) clearInterval(timerInterval);
-    };
-  }, [timerInterval]);
-
-  // Pull-to-Refresh States
-  const [touchStart, setTouchStart] = useState<number | null>(null);
-  const [pullOffset, setPullOffset] = useState<number>(0);
-  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
-
-  // Active Tab: 'active' (assigned or in_progress) vs 'completed' (resolved)
-  const [techTab, setTechTab] = useState<'active' | 'completed'>('active');
-
-  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
-    const element = e.currentTarget;
-    if (element.scrollTop === 0 && onRefresh) {
-      setTouchStart(e.touches[0].clientY);
-    }
-  };
-
-  const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
-    if (touchStart === null) return;
-    const currentY = e.touches[0].clientY;
-    const deltaY = currentY - touchStart;
-    if (deltaY > 0) {
-      setPullOffset(Math.min(deltaY * 0.4, 70));
-    }
-  };
-
-  const handleTouchEnd = async () => {
-    if (touchStart === null) return;
-    setTouchStart(null);
-    if (pullOffset >= 45 && onRefresh) {
-      setIsRefreshing(true);
-      try {
-        await onRefresh();
-      } catch (err) {
-        console.warn('Failed to manual-refresh via pull-down:', err);
-      } finally {
-        setIsRefreshing(false);
-      }
-    }
-    setPullOffset(0);
-  };
-
-  useEffect(() => {
-    const loadTechProfile = async () => {
-      try {
-        const res = await fetch('/api/technicians');
-        const techs = await res.json();
-        const tech = techs.find((t: any) => t.user_id === technicianUserId);
-        if (tech) {
-          setTechProfile(tech);
-        }
-      } catch (err) {
-        console.warn('Failed to load technician profile:', err);
-      }
-    };
-    loadTechProfile();
-  }, [technicianUserId]);
-
-  // Filtering States
-  const [categoryFilter, setCategoryFilter] = useState<string | 'all'>('all');
-
-  // Derive technician's assigned reports
-  const myReports = reports.filter(r => {
-    if (techProfile) {
-      return r.assigned_technician_id === techProfile.id || r.assigned_technician_name === techProfile.name;
-    }
-    // Fallback: show assigned or in-progress or resolved while profile is loading
-    return true;
-  });
-
-  // Split into active and completed assignments
-  const activeAssignments = myReports.filter(r => r.status === 'assigned' || r.status === 'in_progress');
-  const completedAssignments = myReports.filter(r => r.status === 'resolved');
-
-  // Select list based on selected tab
-  const currentTabReports = techTab === 'active' ? activeAssignments : completedAssignments;
-
-  // Filter based on category
-  const filteredReports = currentTabReports.filter(r => {
-    return categoryFilter === 'all' || r.category === categoryFilter;
-  });
-
-  const handleUpdate = async (reportId: string, nextStatus: ReportStatus) => {
-    if (nextStatus === 'resolved') {
-      setResolvingReportId(reportId);
-      return;
-    }
-
-    setUpdatingReportIds(prev => ({ ...prev, [reportId]: true }));
-    setError(null);
-
-    try {
-      await onUpdateStatus(reportId, nextStatus);
-    } catch (err: any) {
-      console.error(err);
-      setError(err.message || 'Failed to update ticket status.');
-    } finally {
-      setUpdatingReportIds(prev => ({ ...prev, [reportId]: false }));
-    }
-  };
-
   return (
-    <div 
-      id="technician-queue-view" 
-      className="space-y-5 overflow-y-auto max-h-full pb-20 pr-1 select-none relative"
-      onTouchStart={handleTouchStart}
-      onTouchMove={handleTouchMove}
-      onTouchEnd={handleTouchEnd}
-    >
-      {/* Pull down refreshing indicator bar */}
-      {pullOffset > 0 && (
-        <div 
-          style={{ height: `${pullOffset}px`, opacity: Math.min(pullOffset / 45, 1) }}
-          className="overflow-hidden flex items-center justify-center transition-all duration-100 bg-emerald-50/40 border border-emerald-100/60 rounded-xl text-[10px] font-sans font-bold text-emerald-700 gap-1.5 shrink-0"
-        >
-          <div className={`w-3.5 h-3.5 border border-emerald-600 border-t-transparent rounded-full ${pullOffset >= 45 ? 'animate-spin' : ''}`} style={{ borderWidth: '1.5px', borderRightColor: 'transparent' }} />
-          <span>{pullOffset >= 45 ? 'Release to sync queue...' : 'Pull down to refresh'}</span>
-        </div>
-      )}
-
-      {isRefreshing && (
-        <div className="h-10 flex items-center justify-center bg-emerald-50 border border-emerald-100 text-[10px] font-sans font-bold text-emerald-800 gap-1.5 rounded-xl animate-pulse shrink-0">
-          <div className="w-3.5 h-3.5 border border-emerald-600 border-t-transparent rounded-full animate-spin" style={{ borderWidth: '1.5px', borderRightColor: 'transparent' }} />
-          <span>Refreshing and synchronizing with database...</span>
-        </div>
-      )}
-
+    <div id="technician-queue-view" className="space-y-5 overflow-y-auto max-h-full pb-20 pr-1 select-none">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2">
-        <div>
-          <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2 font-sans">
-            <Wrench className="text-emerald-600 animate-pulse" size={20} /> Technician Dashboard
-          </h2>
-          <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mt-0.5">ABU Samaru Campus Maintenance Assignments</p>
-        </div>
-        {techProfile && (
-          <div className="bg-emerald-50 border border-emerald-100/80 px-2.5 py-1 rounded-full text-[10px] font-bold text-emerald-700 self-start sm:self-auto flex items-center gap-1.5 shadow-2xs">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
-            Specialist: {techProfile.name}
-          </div>
-        )}
+      <div>
+        <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2 font-sans">
+          <Wrench className="text-emerald-600" size={20} /> Technician Work Queue
+        </h2>
+        <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mt-1">ABU Samaru Campus Maintenance Assignments</p>
       </div>
-
-      {/* Tab Switcher */}
-      <div className="flex border-b border-slate-200 bg-white rounded-xl p-1 shadow-2xs border">
-        <button
-          onClick={() => setTechTab('active')}
-          className={`flex-1 py-2 text-xs font-bold transition-all rounded-lg text-center cursor-pointer flex items-center justify-center gap-1.5 ${
-            techTab === 'active'
-              ? 'bg-emerald-600 text-white shadow-sm'
-              : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
-          }`}
-        >
-          👷 Active Assignments
-          <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-extrabold ${techTab === 'active' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'}`}>
-            {activeAssignments.length}
-          </span>
-        </button>
-        <button
-          onClick={() => setTechTab('completed')}
-          className={`flex-1 py-2 text-xs font-bold transition-all rounded-lg text-center cursor-pointer flex items-center justify-center gap-1.5 ${
-            techTab === 'completed'
-              ? 'bg-emerald-600 text-white shadow-sm'
-              : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
-          }`}
-        >
-          ✅ Completed Tasks
-          <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-extrabold ${techTab === 'completed' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'}`}>
-            {completedAssignments.length}
-          </span>
-        </button>
-      </div>
-
-      {/* Filter Bar */}
-      <div className="bg-slate-50 border border-slate-200/80 p-3 rounded-2xl flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-        <div className="flex items-center gap-1.5">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">Filter by Category:</span>
-        </div>
-        <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-          {/* Category Filter */}
-          <div className="flex-1 sm:flex-initial min-w-[150px]">
-            <select
-              id="tech-category-filter"
-              value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
-              className="w-full text-xs bg-white border border-slate-200 px-3 py-1.5 rounded-lg text-slate-600 font-medium focus:outline-hidden focus:ring-1 focus:ring-emerald-500"
-            >
-              <option value="all">All Categories</option>
-              <option value="broken_lights">Broken Lights</option>
-              <option value="plumbing">Plumbing / Leaks</option>
-              <option value="wifi_outage">WiFi Outage</option>
-              <option value="security">Security Concern</option>
-              <option value="structural">Structural Damage</option>
-              <option value="others">Other</option>
-            </select>
-          </div>
-        </div>
-      </div>
-
-      {error && (
-        <div className="p-3 bg-rose-50 border border-rose-100 text-xs text-rose-600 rounded-xl font-medium animate-pulse">
-          ⚠️ {error}
-        </div>
-      )}
 
       {/* Task Queue List */}
       <div className="space-y-3">
         <h3 className="text-[10px] font-bold text-slate-400 flex items-center gap-1.5 uppercase tracking-widest font-mono">
-          📋 {techTab === 'active' ? 'My Active Work Queue' : 'My Completed Tasks Archive'} ({filteredReports.length} Shown)
+          👷 Assigned Task Feed ({assignedReports.length} Active)
         </h3>
 
-        {isInitialLoading && filteredReports.length === 0 ? (
-          <div className="space-y-4 animate-pulse">
-            {[1, 2, 3].map((n) => (
-              <div key={n} className="bg-white border border-slate-200/80 rounded-2xl p-4 space-y-4 shadow-2xs">
-                <div className="flex justify-between items-center">
-                  <div className="h-4 w-24 bg-slate-100 rounded-md" />
-                  <div className="h-3 w-16 bg-slate-100 rounded-md" />
-                </div>
-                <div className="space-y-2">
-                  <div className="h-3.5 w-full bg-slate-100 rounded-md" />
-                  <div className="h-3.5 w-5/6 bg-slate-100 rounded-md" />
-                </div>
-                <div className="flex gap-2 pt-2 border-t border-slate-50">
-                  <div className="h-8 w-1/2 bg-slate-100 rounded-xl" />
-                  <div className="h-8 w-1/2 bg-slate-100 rounded-xl" />
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : filteredReports.length === 0 ? (
-          <div className="bg-white border border-slate-200 p-10 rounded-2xl text-center text-slate-400 text-xs font-semibold shadow-2xs">
-            {currentTabReports.length === 0 
-              ? (techTab === 'active' 
-                  ? "🎉 Amazing! Your active task queue is completely empty. No current assignments." 
-                  : "⌛ You haven't resolved any tasks yet. Complete a task to see it logged here!")
-              : "🔍 No tasks match your selected category filter."}
+        {assignedReports.length === 0 ? (
+          <div className="bg-slate-50 border border-slate-200 p-8 rounded-2xl text-center text-slate-400 text-xs font-semibold">
+            🎉 Amazing! Your task queue is completely empty. No current assignments.
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {filteredReports.map((report) => (
+          <div className="space-y-3">
+            {assignedReports.map((report) => (
               <div
                 key={report.id}
-                className={`bg-white border p-4 rounded-2xl space-y-3 shadow-2xs hover:shadow-xs transition-all duration-300 relative ${
-                  report.status === 'resolved' 
-                    ? 'border-emerald-100 bg-emerald-50/10' 
-                    : 'border-slate-200/80 hover:border-slate-300'
-                }`}
+                className="bg-white border border-slate-200/80 p-4 rounded-2xl space-y-3 shadow-xs hover:border-slate-300 transition-colors"
               >
                 {/* Priority and category header */}
                 <div className="flex items-center justify-between">
@@ -378,50 +146,48 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
                       report.priority_score === 3 ? 'bg-amber-50 text-amber-600 border-amber-100' :
                       'bg-emerald-50 text-emerald-600 border-emerald-100'
                     }`}>
-                      P{report.priority_score}
+                      Priority P{report.priority_score}
                     </span>
                     <span className="text-xs font-bold capitalize text-slate-700">
                       {report.category.replace('_', ' ')}
                     </span>
                   </div>
                   <span className={`text-[9px] font-extrabold uppercase px-2.5 py-0.5 rounded-full border ${
-                    report.status === 'resolved'
-                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                      : report.status === 'in_progress'
-                      ? 'bg-indigo-50 text-indigo-700 border-indigo-200 animate-pulse'
-                      : 'bg-amber-50 text-amber-700 border-amber-200'
+                    report.status === 'in_progress' 
+                      ? 'bg-indigo-50 text-indigo-600 border-indigo-100' 
+                      : 'bg-amber-50 text-amber-600 border-amber-100'
                   }`}>
-                    {report.status.replace('_', ' ')}
+                    {report.status}
                   </span>
                 </div>
 
                 {/* Description */}
-                <p className="text-xs text-slate-600 leading-relaxed font-semibold line-clamp-3">
+                <p className="text-xs text-slate-600 leading-relaxed font-medium">
                   "{report.description}"
                 </p>
 
                 {/* Photo summary */}
                 {report.photo_url && (
-                  <div className="rounded-xl overflow-hidden border border-slate-100 max-h-32 shadow-2xs">
+                  <div className="rounded-xl overflow-hidden border border-slate-100 max-h-36 shadow-xs">
                     <img src={report.photo_url} alt="Issue location" className="w-full h-full object-cover" />
                   </div>
                 )}
 
                 {/* Location indicator with directions link */}
-                <div className="bg-slate-50 p-2 rounded-xl border border-slate-200/50 flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-1.5 text-slate-500 min-w-0">
-                    <MapPin size={13} className="text-rose-500 shrink-0" />
-                    <span className="truncate text-[10px] font-semibold">{report.zone_name}</span>
+                <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200/50 flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2 text-slate-500">
+                    <MapPin size={14} className="text-rose-500 shrink-0" />
+                    <span className="truncate max-w-[180px] text-[11px] font-semibold">{report.zone_name}</span>
                   </div>
                   
-                  {/* Google Maps coordinate route support */}
+                  {/* Google Maps coordinate link for outdoor route support */}
                   <a
                     href={`https://www.google.com/maps/dir/?api=1&destination=${report.lat},${report.lng}`}
                     target="_blank"
                     rel="noreferrer"
-                    className="bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold px-2.5 py-1 rounded-lg flex items-center gap-1 transition-colors text-[9px] cursor-pointer"
+                    className="bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition-colors text-[10px] cursor-pointer"
                   >
-                    <Navigation size={9} /> Route
+                    <Navigation size={10} /> Route
                   </a>
                 </div>
 
@@ -429,65 +195,128 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
                 <div className="space-y-2 pt-1 border-t border-slate-100">
                   <button
                     type="button"
-                    onClick={() => setActiveDetailReportId(report.id)}
-                    className="w-full text-center text-[11px] bg-slate-50 hover:bg-slate-100 border border-slate-200/80 hover:border-slate-300 text-slate-600 font-bold py-1.5 px-4 rounded-xl transition-all flex items-center justify-center gap-1 cursor-pointer"
+                    onClick={() => setActiveDetailReport(report)}
+                    className="w-full text-center text-xs bg-slate-50 hover:bg-slate-100 border border-slate-200/80 hover:border-slate-300 text-slate-700 font-bold py-2 px-4 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                   >
-                    📖 View Full Ticket Details
+                    📖 Open Full Task Details
                   </button>
 
-                  {report.status !== 'resolved' && (
-                    <div className="flex gap-2">
-                      {report.status === 'assigned' && (
-                        <button
-                          disabled={updatingReportIds[report.id]}
-                          onClick={() => handleUpdate(report.id, 'in_progress')}
-                          className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-100 disabled:text-slate-400 text-white font-bold text-xs py-2 rounded-xl transition-all cursor-pointer text-center flex items-center justify-center gap-1 shadow-2xs active:scale-98"
-                        >
-                          {updatingReportIds[report.id] ? (
-                            <>
-                              <Loader2 size={12} className="animate-spin text-white/50" />
-                              <span>Starting...</span>
-                            </>
-                          ) : (
-                            <>
-                              <span>🚀 Start Work</span>
-                            </>
-                          )}
-                        </button>
-                      )}
-                      
-                      {report.status === 'in_progress' && (
-                        <button
-                          disabled={updatingReportIds[report.id]}
-                          onClick={() => handleUpdate(report.id, 'resolved')}
-                          className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-100 disabled:text-slate-400 text-white font-bold text-xs py-2 rounded-xl flex items-center justify-center gap-1 transition-all cursor-pointer text-center shadow-2xs active:scale-98"
-                        >
-                          {updatingReportIds[report.id] ? (
-                            <>
-                              <Loader2 size={12} className="animate-spin text-white/50" />
-                              <span>Resolving...</span>
-                            </>
-                          ) : (
-                            <>
-                              <CheckCircle size={12} /> completed task?
-                            </>
-                          )}
-                        </button>
-                      )}
-                    </div>
-                  )}
-
-                  {report.status === 'resolved' && (
-                    <div className="text-center text-[10px] text-emerald-600 font-bold bg-emerald-50/50 py-1.5 px-3 rounded-xl border border-emerald-100 flex items-center justify-center gap-1">
-                      <CheckCircle size={11} /> Task Completed & Resolved Successfully
-                    </div>
-                  )}
+                  <div className="flex gap-2">
+                    {report.status === 'assigned' && (
+                      <button
+                        disabled={isSubmitting}
+                        onClick={() => handleUpdate(report.id, 'in_progress')}
+                        className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-100 disabled:text-slate-400 text-white font-bold text-xs py-2.5 rounded-xl transition-colors cursor-pointer text-center"
+                      >
+                        🚀 Inspection Started
+                      </button>
+                    )}
+                    {report.status === 'in_progress' && (
+                      <button
+                        disabled={isSubmitting}
+                        onClick={() => handleUpdate(report.id, 'resolved')}
+                        className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-100 disabled:text-slate-400 text-white font-bold text-xs py-2.5 rounded-xl flex items-center justify-center gap-1 transition-colors cursor-pointer text-center"
+                      >
+                        <CheckCircle size={13} /> Task Completed
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
           </div>
         )}
       </div>
+
+      {/* Resolution Confirmation Bottom Sheet Modal */}
+      {selectedReport && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-50 flex items-end justify-center p-0 md:p-6 animate-fade-in">
+          <div className="bg-white border border-slate-200 w-full md:max-w-md rounded-t-2xl md:rounded-2xl shadow-2xl p-5 space-y-4 max-h-[85vh] overflow-y-auto animate-slide-up">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <div>
+                <h4 className="text-sm font-bold text-slate-800 font-sans">Confirm Inspection Finished</h4>
+                <p className="text-[9px] text-slate-400 font-bold font-mono">TICKET #{selectedReport.id.substring(0, 8)}</p>
+              </div>
+              <button
+                onClick={() => {
+                  setSelectedReport(null);
+                  setPhotoProof(undefined);
+                  setError(null);
+                }}
+                className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-800 font-bold px-2.5 py-1 rounded-lg cursor-pointer transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+
+            {error && (
+              <div className="p-2.5 bg-rose-50 border border-rose-200 text-xs text-rose-600 rounded-xl font-medium">
+                ⚠️ {error}
+              </div>
+            )}
+
+            <form onSubmit={handleResolveSubmit} className="space-y-4">
+              {/* Repair details */}
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                  Explain repairs completed <span className="text-rose-500">*</span>
+                </label>
+                <textarea
+                  required
+                  rows={3}
+                  value={commentText}
+                  onChange={(e) => setCommentText(e.target.value)}
+                  placeholder="E.g., 'Replaced broken 40W street LED bulb and taped exposed terminal wires. Checked breaker. Fully resolved!'"
+                  className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl p-3 text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                />
+                <span className="text-[9px] text-slate-400 font-semibold mt-1 block">Min. 10 characters required.</span>
+              </div>
+
+              {/* Photo Proof */}
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                  Upload Repair Image Proof <span className="text-slate-400 font-normal">(Optional)</span>
+                </label>
+                <div className="flex items-center gap-3">
+                  <label className="flex flex-col items-center justify-center w-20 h-16 rounded-xl border border-dashed border-slate-200 bg-slate-50 text-slate-400 hover:text-slate-600 cursor-pointer text-xs transition-colors hover:border-slate-300">
+                    <Camera size={16} />
+                    <span className="text-[9px] mt-0.5 font-bold">Upload</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handlePhotoUpload}
+                      className="hidden"
+                    />
+                  </label>
+
+                  {photoProof ? (
+                    <div className="relative w-16 h-16 rounded-xl overflow-hidden border border-slate-200 shadow-xs">
+                      <img src={photoProof} alt="Proof" className="w-full h-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => setPhotoProof(undefined)}
+                        className="absolute top-0.5 right-0.5 bg-slate-900/80 hover:bg-slate-900 text-white p-0.5 rounded-full text-[8px]"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ) : (
+                    <span className="text-[9px] text-slate-400 font-medium">Attach a photo showing the resolved issue.</span>
+                  )}
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-100 disabled:text-slate-400 text-white font-bold text-xs py-2.5 rounded-xl transition-colors cursor-pointer text-center"
+              >
+                {isSubmitting ? 'Submitting resolution...' : 'Confirm Task Completed (Notifies Admin & Reporters)'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Task Details Modal */}
       {activeDetailReport && (
@@ -508,7 +337,7 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
                 <p className="text-[9px] text-slate-400 font-bold font-mono">TICKET #{activeDetailReport.id}</p>
               </div>
               <button
-                onClick={() => setActiveDetailReportId(null)}
+                onClick={() => setActiveDetailReport(null)}
                 className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-800 font-bold px-2.5 py-1.5 rounded-lg cursor-pointer transition-colors"
               >
                 Close
@@ -527,7 +356,7 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
               {/* Text Description */}
               <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200/60">
                 <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 font-mono">Report Description</h5>
-                <p className="text-xs text-slate-700 leading-relaxed font-semibold">
+                <p className="text-xs text-slate-700 leading-relaxed font-medium">
                   "{activeDetailReport.description || 'No text description provided.'}"
                 </p>
               </div>
@@ -579,200 +408,32 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
               </div>
 
               {/* Action Buttons inside Modal */}
-              {activeDetailReport.status !== 'resolved' && (
-                <div className="pt-3 border-t border-slate-100 flex gap-2">
-                  {activeDetailReport.status === 'assigned' && (
-                    <button
-                      disabled={updatingReportIds[activeDetailReport.id]}
-                      onClick={async () => {
-                        await handleUpdate(activeDetailReport.id, 'in_progress');
-                        setActiveDetailReportId(null);
-                      }}
-                      className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-100 disabled:text-slate-400 text-white font-bold text-xs py-2.5 rounded-xl transition-all cursor-pointer text-center shadow-xs flex items-center justify-center gap-1.5 active:scale-98"
-                    >
-                      {updatingReportIds[activeDetailReport.id] ? (
-                        <>
-                          <Loader2 size={13} className="animate-spin text-white/50" />
-                          <span>Starting...</span>
-                        </>
-                      ) : (
-                        <>
-                          <span>🚀 Start Work</span>
-                        </>
-                      )}
-                    </button>
-                  )}
-                  {activeDetailReport.status === 'in_progress' && (
-                    <button
-                      disabled={updatingReportIds[activeDetailReport.id]}
-                      onClick={async () => {
-                        await handleUpdate(activeDetailReport.id, 'resolved');
-                        setActiveDetailReportId(null);
-                      }}
-                      className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-100 disabled:text-slate-400 text-white font-bold text-xs py-2.5 rounded-xl flex items-center justify-center gap-1 transition-all cursor-pointer text-center shadow-xs active:scale-98"
-                    >
-                      {updatingReportIds[activeDetailReport.id] ? (
-                        <>
-                          <Loader2 size={13} className="animate-spin text-white/50" />
-                          <span>Resolving...</span>
-                        </>
-                      ) : (
-                        <>
-                          <CheckCircle size={13} /> completed task?
-                        </>
-                      )}
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Task Completion Dialogue Box (Modal) */}
-      {resolvingReportId && (
-        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-fade-in">
-          <div className="bg-white border border-slate-200 w-full max-w-md rounded-2xl shadow-2xl p-5 space-y-4 max-h-[90vh] overflow-y-auto animate-slide-up">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <div>
-                <h4 className="text-sm font-bold text-slate-800 font-sans">
-                  Complete & Resolve Task
-                </h4>
-                <p className="text-[10px] text-slate-400 font-mono">TICKET #{resolvingReportId}</p>
-              </div>
-              <button
-                onClick={() => {
-                  setResolvingReportId(null);
-                  setResolutionComment('');
-                  setResolutionPhoto(null);
-                  setResolutionVoice(null);
-                }}
-                className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-800 font-bold px-2.5 py-1.5 rounded-lg cursor-pointer transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
-
-            <div className="space-y-4 text-left">
-              {/* Comment / Resolution details */}
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">
-                  Resolution Details (Required)
-                </label>
-                <textarea
-                  required
-                  placeholder="Provide details about the resolution (e.g. replaced the lightbulb, patched the copper plumbing leak, verified electrical circuit)..."
-                  value={resolutionComment}
-                  onChange={(e) => setResolutionComment(e.target.value)}
-                  className="w-full h-24 p-3 border border-slate-200 rounded-xl text-xs placeholder-slate-400 focus:outline-hidden focus:ring-1 focus:ring-emerald-500 font-medium"
-                />
-              </div>
-
-              {/* Photo Proof uploading */}
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">
-                  Upload Resolution Photo (Optional)
-                </label>
-                <div className="flex items-center gap-3">
-                  <label className="flex items-center gap-1.5 px-3 py-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-xl cursor-pointer text-xs font-bold transition-all">
-                    <Camera size={14} className="text-slate-500" />
-                    <span>Choose Photo</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handlePhotoUpload}
-                      className="hidden"
-                    />
-                  </label>
-                  {resolutionPhoto && (
-                    <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-1">
-                      ✓ Attached
-                      <button
-                        type="button"
-                        onClick={() => setResolutionPhoto(null)}
-                        className="text-rose-500 font-bold hover:underline"
-                      >
-                        Remove
-                      </button>
-                    </span>
-                  )}
-                </div>
-                {resolutionPhoto && (
-                  <div className="mt-2 rounded-xl overflow-hidden border border-slate-200 max-h-32 bg-slate-50">
-                    <img src={resolutionPhoto} alt="Resolution proof preview" className="w-full h-full object-contain" />
-                  </div>
+              <div className="pt-3 border-t border-slate-100 flex gap-2">
+                {activeDetailReport.status === 'assigned' && (
+                  <button
+                    disabled={isSubmitting}
+                    onClick={async () => {
+                      await handleUpdate(activeDetailReport.id, 'in_progress');
+                      setActiveDetailReport(prev => prev ? { ...prev, status: 'in_progress' } : null);
+                    }}
+                    className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-100 text-white font-bold text-xs py-3 rounded-xl transition-all cursor-pointer text-center shadow-xs"
+                  >
+                    🚀 Inspection Started / Start Work
+                  </button>
+                )}
+                {activeDetailReport.status === 'in_progress' && (
+                  <button
+                    disabled={isSubmitting}
+                    onClick={() => {
+                      setSelectedReport(activeDetailReport);
+                      setActiveDetailReport(null);
+                    }}
+                    className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-100 text-white font-bold text-xs py-3 rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer text-center shadow-xs"
+                  >
+                    <CheckCircle size={14} /> Task Completed / Fix Issue
+                  </button>
                 )}
               </div>
-
-              {/* Voice Proof recording */}
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">
-                  Record Voice Explainer (Optional)
-                </label>
-                <div className="flex items-center gap-3">
-                  {isRecording ? (
-                    <button
-                      type="button"
-                      onClick={stopRecording}
-                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl border bg-rose-50 border-rose-200 text-rose-700 text-xs font-bold animate-pulse cursor-pointer"
-                    >
-                      <Square size={12} className="text-rose-600 animate-spin" />
-                      <span>Stop ({formatDuration(recordingDuration)})</span>
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={startRecording}
-                      className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
-                        resolutionVoice
-                          ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                          : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
-                      }`}
-                    >
-                      <Mic size={14} className={resolutionVoice ? 'text-emerald-600' : 'text-slate-400'} />
-                      <span>{resolutionVoice ? 'Re-record Audio' : 'Record Audio'}</span>
-                    </button>
-                  )}
-
-                  {resolutionVoice && (
-                    <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-1">
-                      ✓ Audio Recorded
-                      <button
-                        type="button"
-                        onClick={() => setResolutionVoice(null)}
-                        className="text-rose-500 font-bold hover:underline"
-                      >
-                        Remove
-                      </button>
-                    </span>
-                  )}
-                </div>
-                {resolutionVoice && (
-                  <div className="mt-2 bg-emerald-50/20 border border-emerald-100 p-2.5 rounded-xl">
-                    <audio controls src={resolutionVoice} className="w-full h-8" />
-                  </div>
-                )}
-              </div>
-
-              {/* Final Submit button */}
-              <button
-                disabled={!resolutionComment.trim() || updatingReportIds[resolvingReportId]}
-                onClick={executeResolution}
-                className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-100 disabled:text-slate-400 text-white font-bold text-xs py-2.5 rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-md active:scale-98"
-              >
-                {updatingReportIds[resolvingReportId] ? (
-                  <>
-                    <Loader2 size={13} className="animate-spin text-white/50" />
-                    <span>Saving Completion...</span>
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle size={14} />
-                    <span>Submit & Resolve Ticket</span>
-                  </>
-                )}
-              </button>
             </div>
           </div>
         </div>

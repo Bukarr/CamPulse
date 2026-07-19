@@ -9,8 +9,6 @@ interface StudentViewProps {
   onUpvote: (reportId: string) => Promise<void>;
   onAddComment: (reportId: string, text: string) => Promise<void>;
   onDeleteReport?: (reportId: string) => Promise<boolean>;
-  onRefresh?: () => Promise<void>;
-  isInitialLoading?: boolean;
 }
 
 const CATEGORY_ICONS: Record<string, string> = {
@@ -29,54 +27,16 @@ const STATUS_CLASSES: Record<ReportStatus, string> = {
   resolved: 'bg-emerald-50 text-emerald-600 border border-emerald-100'
 };
 
-export default function StudentView({ userId, userName, reports, onUpvote, onAddComment, onDeleteReport, onRefresh, isInitialLoading }: StudentViewProps) {
+export default function StudentView({ userId, userName, reports, onUpvote, onAddComment, onDeleteReport }: StudentViewProps) {
   const [filter, setFilter] = useState<'all' | 'mine'>('all');
   const [categoryFilter, setCategoryFilter] = useState<ReportCategory | 'all'>('all');
   const [urgencyFilter, setUrgencyFilter] = useState<number | 'all'>('all');
   const [sortBy, setSortBy] = useState<'newest' | 'upvotes' | 'gemma_rank'>('newest');
-  const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
-  const selectedReport = reports.find(r => r.id === selectedReportId) || null;
+  const [selectedReport, setSelectedReport] = useState<Report | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState('');
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
-
-  // Pull-to-Refresh States
-  const [touchStart, setTouchStart] = useState<number | null>(null);
-  const [pullOffset, setPullOffset] = useState<number>(0);
-  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
-
-  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
-    const element = e.currentTarget;
-    if (element.scrollTop === 0 && onRefresh) {
-      setTouchStart(e.touches[0].clientY);
-    }
-  };
-
-  const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
-    if (touchStart === null) return;
-    const currentY = e.touches[0].clientY;
-    const deltaY = currentY - touchStart;
-    if (deltaY > 0) {
-      setPullOffset(Math.min(deltaY * 0.4, 70));
-    }
-  };
-
-  const handleTouchEnd = async () => {
-    if (touchStart === null) return;
-    setTouchStart(null);
-    if (pullOffset >= 45 && onRefresh) {
-      setIsRefreshing(true);
-      try {
-        await onRefresh();
-      } catch (err) {
-        console.warn('Failed to manual-refresh via pull-down:', err);
-      } finally {
-        setIsRefreshing(false);
-      }
-    }
-    setPullOffset(0);
-  };
 
   // Monitor network status
   useEffect(() => {
@@ -147,31 +107,7 @@ export default function StudentView({ userId, userName, reports, onUpvote, onAdd
     });
 
   return (
-    <div 
-      id="student-workspace" 
-      className="space-y-4 overflow-y-auto max-h-full pb-24 pr-1 relative select-none"
-      onTouchStart={handleTouchStart}
-      onTouchMove={handleTouchMove}
-      onTouchEnd={handleTouchEnd}
-    >
-      {/* Pull down refreshing indicator bar */}
-      {pullOffset > 0 && (
-        <div 
-          style={{ height: `${pullOffset}px`, opacity: Math.min(pullOffset / 45, 1) }}
-          className="overflow-hidden flex items-center justify-center transition-all duration-100 bg-emerald-50/40 border border-emerald-100/60 rounded-xl text-[10px] font-sans font-bold text-emerald-700 gap-1.5 shrink-0"
-        >
-          <div className={`w-3.5 h-3.5 border border-emerald-600 border-t-transparent rounded-full ${pullOffset >= 45 ? 'animate-spin' : ''}`} style={{ borderWidth: '1.5px', borderRightColor: 'transparent' }} />
-          <span>{pullOffset >= 45 ? 'Release to sync feed...' : 'Pull down to refresh'}</span>
-        </div>
-      )}
-
-      {isRefreshing && (
-        <div className="h-10 flex items-center justify-center bg-emerald-50 border border-emerald-100 text-[10px] font-sans font-bold text-emerald-800 gap-1.5 rounded-xl animate-pulse shrink-0">
-          <div className="w-3.5 h-3.5 border border-emerald-600 border-t-transparent rounded-full animate-spin" style={{ borderWidth: '1.5px', borderRightColor: 'transparent' }} />
-          <span>Refreshing and synchronizing with database...</span>
-        </div>
-      )}
-
+    <div id="student-workspace" className="space-y-4 overflow-y-auto max-h-full pb-24 pr-1">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -260,25 +196,7 @@ export default function StudentView({ userId, userName, reports, onUpvote, onAdd
 
       {/* Issues feed */}
       <div className="space-y-3">
-        {isInitialLoading && filteredReports.length === 0 ? (
-          <div className="space-y-3 animate-pulse">
-            {[1, 2, 3].map((n) => (
-              <div key={n} className="bg-white border border-slate-200/80 p-4 rounded-xl flex gap-3.5 shadow-xs">
-                <div className="flex flex-col items-center justify-center shrink-0 w-10">
-                  <div className="h-6 w-8 bg-slate-100 rounded-md" />
-                </div>
-                <div className="flex-1 space-y-2">
-                  <div className="flex justify-between">
-                    <div className="h-4 w-24 bg-slate-100 rounded-md" />
-                    <div className="h-3 w-16 bg-slate-100 rounded-md" />
-                  </div>
-                  <div className="h-3 w-full bg-slate-100 rounded-md" />
-                  <div className="h-3 w-4/5 bg-slate-100 rounded-md" />
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : filteredReports.length === 0 ? (
+        {filteredReports.length === 0 ? (
           <div className="bg-white border border-slate-200/80 p-8 rounded-xl text-center text-slate-400 text-xs font-sans">
             No active reports match selected filters. Drop a marker pin on the map to start reporting!
           </div>
@@ -288,7 +206,7 @@ export default function StudentView({ userId, userName, reports, onUpvote, onAdd
             return (
               <div
                 key={report.id}
-                onClick={() => setSelectedReportId(report.id)}
+                onClick={() => setSelectedReport(report)}
                 className="bg-white border border-slate-200/80 hover:border-emerald-500/50 p-4 rounded-xl flex gap-3.5 cursor-pointer transition-all shadow-xs relative group"
               >
                 {/* Left upvote block */}
@@ -364,7 +282,7 @@ export default function StudentView({ userId, userName, reports, onUpvote, onAdd
                       if (window.confirm("Are you sure you want to delete this maintenance report? This will remove all associated comments.")) {
                         const success = await onDeleteReport(selectedReport.id);
                         if (success) {
-                          setSelectedReportId(null);
+                          setSelectedReport(null);
                         }
                       }
                     }}
@@ -375,7 +293,7 @@ export default function StudentView({ userId, userName, reports, onUpvote, onAdd
                 )}
                 <button
                   onClick={() => {
-                    setSelectedReportId(null);
+                    setSelectedReport(null);
                     setNewComment('');
                   }}
                   className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-700 font-bold px-3 py-1.5 rounded-lg transition-all cursor-pointer"

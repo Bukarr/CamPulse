@@ -3,7 +3,7 @@ import { User, Report, UserRole, ReportStatus, Technician } from './types';
 import BottomNav from './components/BottomNav';
 import { Wifi, WifiOff, LogOut, ShieldCheck, Mail, Sparkles, Database, Bell, BellRing, X, ChevronRight, Check } from 'lucide-react';
 import { Notification } from './types';
-import { syncOfflineReports, syncOfflineActions, addOfflineAction } from './utils/offlineQueue';
+import { syncOfflineReports } from './utils/offlineQueue';
 
 const LoginView = React.lazy(() => import('./components/LoginView'));
 const MapComponent = React.lazy(() => import('./components/MapComponent'));
@@ -43,14 +43,7 @@ function OfflineIndicator() {
 export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
-  const [reports, setReports] = useState<Report[]>(() => {
-    try {
-      const cached = localStorage.getItem('campulse-cached-reports');
-      return cached ? JSON.parse(cached) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [reports, setReports] = useState<Report[]>([]);
   const [currentTab, setCurrentTab] = useState<'map' | 'report' | 'workspace' | 'profile'>('map');
   const [reportingCoords, setReportingCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
@@ -58,29 +51,13 @@ export default function App() {
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
 
   // Notifications state
-  const [notifications, setNotifications] = useState<any[]>(() => {
-    try {
-      const cached = localStorage.getItem('campulse-cached-notifications');
-      return cached ? JSON.parse(cached) : [];
-    } catch {
-      return [];
-    }
-  });
-  const [activeToast, setActiveToast] = useState<any | null>(null);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [activeToast, setActiveToast] = useState<Notification | null>(null);
   const [showNotificationsPanel, setShowNotificationsPanel] = useState(false);
   const [assigningNotifId, setAssigningNotifId] = useState<string | null>(null);
 
   // Technicians state
-  const [technicians, setTechnicians] = useState<Technician[]>(() => {
-    try {
-      const cached = localStorage.getItem('campulse-cached-technicians');
-      return cached ? JSON.parse(cached) : [];
-    } catch {
-      return [];
-    }
-  });
-
-  const [isInitialLoading, setIsInitialLoading] = useState(reports.length === 0);
+  const [technicians, setTechnicians] = useState<Technician[]>([]);
 
   // Initialize: register Service Worker, load user from localStorage, setup network listeners
   useEffect(() => {
@@ -151,121 +128,48 @@ export default function App() {
     fetchNotifications();
     fetchTechnicians();
 
-    let eventSource: EventSource | null = null;
-    let reconnectTimeout: NodeJS.Timeout | null = null;
-    let heartbeatTimeout: NodeJS.Timeout | null = null;
-    let isMounted = true;
+    // Setup Server-Sent Events (SSE) stream for real-time notifications
+    const eventSource = new EventSource(`/api/events?userId=${currentUser.id}`);
 
-    const resetHeartbeat = () => {
-      if (heartbeatTimeout) {
-        clearTimeout(heartbeatTimeout);
-      }
-      heartbeatTimeout = setTimeout(() => {
-        if (!isMounted) return;
-        console.log('[SSE] Heartbeat timeout: No message received for 30 seconds. Silently restarting connection...');
-        if (eventSource) {
-          eventSource.close();
-          eventSource = null;
+    eventSource.onmessage = (event) => {
+      try {
+        const notif = JSON.parse(event.data);
+        console.log('[SSE] Received live real-time notification:', notif);
+
+        // Filter out 'dispatched' status notifications or non-matching direct target IDs for technician dashboard
+        if (currentUser?.role === 'technician') {
+          const titleLower = (notif.title || '').toLowerCase();
+          const msgLower = (notif.message || '').toLowerCase();
+          if (titleLower.includes('dispatched') || msgLower.includes('dispatched') || (notif.user_id && notif.user_id !== currentUser.id)) {
+            console.log('[SSE] Ignored student dispatched notification for technician:', notif.id);
+            return;
+          }
         }
-        connectSSE();
-      }, 30000);
+
+        // Add to state list
+        setNotifications(prev => [notif, ...prev]);
+
+        // Show floating in-app toast
+        setActiveToast(notif);
+
+        // Auto-dismiss toast after 5 seconds
+        setTimeout(() => {
+          setActiveToast(null);
+        }, 5000);
+
+        // Auto-refresh reports feed
+        fetchReports();
+      } catch (err) {
+        console.error('[SSE] Failed to parse event message', err);
+      }
     };
 
-    const connectSSE = () => {
-      if (!isMounted) return;
-
-      console.log('[SSE] Attempting to connect to EventSource...');
-      if (eventSource) {
-        eventSource.close();
-      }
-
-      eventSource = new EventSource(`/api/events?userId=${currentUser.id}`);
-
-      eventSource.onopen = () => {
-        console.log('[SSE] Connection successfully established!');
-        resetHeartbeat();
-      };
-
-      eventSource.onmessage = (event) => {
-        resetHeartbeat();
-        try {
-          const notif = JSON.parse(event.data);
-          console.log('[SSE] Received live real-time notification:', notif);
-
-          // Filter out notifications intended for other users, but still refresh reports feed to keep state in sync
-          if (currentUser?.role === 'technician') {
-            if (notif.user_id && notif.user_id !== currentUser.id) {
-              console.log('[SSE] Refreshing reports for other user notification:', notif.id);
-              fetchReports();
-              return;
-            }
-          }
-
-          // Add to state list
-          setNotifications(prev => [notif, ...prev]);
-
-          // Update the specific report immediately in local state
-          if (notif.reference_id) {
-            setReports(prev => prev.map(r => {
-              if (r.id === notif.reference_id) {
-                const updatedFields: Partial<Report> = {};
-                if (notif.type === 'new_assignment' || notif.title?.includes('Assigned') || notif.message?.includes('assigned')) {
-                  updatedFields.status = 'assigned';
-                  if (currentUser.role === 'technician') {
-                    updatedFields.assigned_technician_id = currentUser.id;
-                    updatedFields.assigned_technician_name = currentUser.name;
-                  }
-                }
-                return { ...r, ...updatedFields };
-              }
-              return r;
-            }));
-          }
-
-          // Auto-refresh reports feed
-          fetchReports();
-
-          // Show floating in-app toast immediately
-          setActiveToast(notif);
-
-          // Auto-dismiss toast after 5 seconds
-          setTimeout(() => {
-            setActiveToast(null);
-          }, 5000);
-        } catch (err) {
-          console.error('[SSE] Failed to parse event message', err);
-        }
-      };
-
-      eventSource.onerror = (err) => {
-        console.warn('[SSE] Event stream lost connection. Retrying in 5 seconds...', err);
-        if (heartbeatTimeout) {
-          clearTimeout(heartbeatTimeout);
-        }
-        if (eventSource) {
-          eventSource.close();
-          eventSource = null;
-        }
-        if (isMounted) {
-          clearTimeout(reconnectTimeout!);
-          reconnectTimeout = setTimeout(connectSSE, 5000);
-        }
-      };
+    eventSource.onerror = (err) => {
+      console.warn('[SSE] Event stream lost connection. Retrying in background...', err);
     };
-
-    connectSSE();
 
     return () => {
-      isMounted = false;
-      if (eventSource) {
-        eventSource.close();
-      }
-      if (reconnectTimeout) {
-        clearTimeout(reconnectTimeout);
-      }
-      if (heartbeatTimeout) {
-        clearTimeout(heartbeatTimeout);
-      }
+      eventSource.close();
     };
   }, [currentUser?.id]);
 
@@ -276,9 +180,6 @@ export default function App() {
       const data = await res.json();
       if (Array.isArray(data)) {
         setNotifications(data);
-        try {
-          localStorage.setItem('campulse-cached-notifications', JSON.stringify(data));
-        } catch (_) {}
       }
     } catch (err) {
       console.warn('[Notifications] Failed to load history.');
@@ -291,9 +192,6 @@ export default function App() {
       const data = await res.json();
       if (Array.isArray(data)) {
         setTechnicians(data);
-        try {
-          localStorage.setItem('campulse-cached-technicians', JSON.stringify(data));
-        } catch (_) {}
       }
     } catch (err) {
       console.warn('[Technicians] Failed to load technicians list.');
@@ -329,16 +227,9 @@ export default function App() {
       const data = await res.json();
       if (Array.isArray(data)) {
         setReports(data);
-        try {
-          localStorage.setItem('campulse-cached-reports', JSON.stringify(data));
-        } catch (e) {
-          console.warn('Failed to write reports cache to localStorage:', e);
-        }
       }
     } catch (err) {
       console.warn('Failed to load active reports (running offline mode).');
-    } finally {
-      setIsInitialLoading(false);
     }
   };
 
@@ -347,11 +238,9 @@ export default function App() {
     const userRaw = localStorage.getItem('campulse-user');
     if (!userRaw) return;
     const user = JSON.parse(userRaw);
-    const activeToken = token || localStorage.getItem('campulse-token') || '';
 
-    const reportsSuccess = await syncOfflineReports(user.id, setSyncStatus);
-    const actionsSuccess = await syncOfflineActions(activeToken, setSyncStatus);
-    if (reportsSuccess || actionsSuccess) {
+    const success = await syncOfflineReports(user.id, setSyncStatus);
+    if (success) {
       fetchReports();
     }
   }
@@ -407,8 +296,8 @@ export default function App() {
     // Save previous state for potential rollback
     const previousReports = [...reports];
 
-    // 1. Instantly perform optimistic update on local state & persist to cache
-    const updatedReports = reports.map(r => {
+    // 1. Instantly perform optimistic update on local state
+    setReports(prev => prev.map(r => {
       if (r.id === reportId) {
         const upvotedBy = r.upvoted_by || [];
         const idx = upvotedBy.indexOf(currentUser.id);
@@ -424,14 +313,7 @@ export default function App() {
         return { ...r, upvotes: newUpvotes, upvoted_by: newUpvotedBy };
       }
       return r;
-    });
-
-    setReports(updatedReports);
-    try {
-      localStorage.setItem('campulse-cached-reports', JSON.stringify(updatedReports));
-    } catch (e) {
-      console.warn('Failed to save optimistic upvote to cache:', e);
-    }
+    }));
 
     try {
       const res = await fetch(`/api/reports/${reportId}/upvote`, {
@@ -442,28 +324,11 @@ export default function App() {
       if (!res.ok) {
         // Rollback on error
         setReports(previousReports);
-        try {
-          localStorage.setItem('campulse-cached-reports', JSON.stringify(previousReports));
-        } catch (_) {}
       } else {
         // Silently fetch and update reports in the background to ensure data alignment without blocking UI
         const data = await res.json();
-        const updatedReport = data && data.report ? data.report : data;
-        if (updatedReport && updatedReport.id) {
-          const finalReports = updatedReports.map(r => {
-            if (r.id === reportId) {
-              return { 
-                ...r, 
-                upvotes: updatedReport.upvotes, 
-                upvoted_by: updatedReport.upvoted_by || [] 
-              };
-            }
-            return r;
-          });
-          setReports(finalReports);
-          try {
-            localStorage.setItem('campulse-cached-reports', JSON.stringify(finalReports));
-          } catch (_) {}
+        if (data && data.report) {
+          setReports(prev => prev.map(r => r.id === reportId ? { ...r, ...data.report } : r));
         }
       }
     } catch (e) {
@@ -495,153 +360,50 @@ export default function App() {
 
   // Admin Assignment API call
   const handleAssignTechnician = async (reportId: string, technicianId: string) => {
-    // Save previous state for rollback
-    const previousReports = [...reports];
-
-    const tech = technicians.find(t => t.id === technicianId);
-    const techName = tech ? tech.name : 'Assigned Technician';
-
-    // Optimistically update status to 'assigned' and include technician details
-    setReports(prev => prev.map(r => r.id === reportId ? { 
-      ...r, 
-      status: 'assigned',
-      assigned_technician_id: technicianId,
-      assigned_technician_name: techName
-    } : r));
-
-    if (!navigator.onLine) {
-      addOfflineAction({
-        id: `act-${Date.now()}`,
-        type: 'assign',
-        reportId,
-        payload: { technician_id: technicianId },
-        created_at: new Date().toISOString()
-      });
-      alert('🛜 Offline mode detected! This assignment has been queued in your device\'s local storage and will automatically synchronize with ABU servers once your internet connection is restored.');
-      return;
-    }
-
     try {
-      const activeToken = token || localStorage.getItem('campulse-token') || '';
       const res = await fetch(`/api/reports/${reportId}/assign`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${activeToken}`
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({ technician_id: technicianId })
       });
       if (res.ok) {
-        const data = await res.json();
-        if (data && data.report) {
-          setReports(prev => prev.map(r => r.id === reportId ? { ...r, ...data.report } : r));
-        } else {
-          fetchReports();
-        }
+        fetchReports();
       } else {
-        // Rollback on server error
-        setReports(previousReports);
-        let errorMsg = 'Failed to assign technician';
-        try {
-          const d = await res.json();
-          errorMsg = d.error || errorMsg;
-        } catch (_) {}
-        alert(errorMsg);
+        const d = await res.json();
+        alert(d.error || 'Failed to assign technician');
       }
     } catch (e) {
-      // Queue action offline and don't rollback if it was a network error
-      console.warn('Network assignment request failed, caching offline:', e);
-      addOfflineAction({
-        id: `act-${Date.now()}`,
-        type: 'assign',
-        reportId,
-        payload: { technician_id: technicianId },
-        created_at: new Date().toISOString()
-      });
-      alert('🛜 Connection issue detected. This assignment has been saved to your offline queue and will automatically retry when a stable connection returns.');
+      alert('Error updating assignment. Try again once online.');
     }
   };
 
   // Status Change API call
-  const handleUpdateStatus = async (reportId: string, status: ReportStatus, commentText?: string, photoProof?: string, voiceProof?: string) => {
-    // Save previous state for rollback
-    const previousReports = [...reports];
-
-    // Optimistically update report status immediately
-    setReports(prev => prev.map(r => r.id === reportId ? { ...r, status } : r));
-
-    const activeToken = token || localStorage.getItem('campulse-token') || '';
-
-    if (!navigator.onLine) {
-      addOfflineAction({
-        id: `act-${Date.now()}`,
-        type: 'status_change',
-        reportId,
-        payload: {
-          status,
-          technician_id: currentUser?.role === 'technician' ? currentUser.id : undefined,
-          comment_text: commentText,
-          photo_proof: photoProof,
-          voice_proof: voiceProof
-        },
-        created_at: new Date().toISOString()
-      });
-      alert('🛜 Offline mode detected! This status update has been cached locally and will automatically synchronize with Ahmadu Bello University servers once you are back online.');
-      return;
-    }
-
+  const handleUpdateStatus = async (reportId: string, status: ReportStatus, commentText?: string, photoProof?: string) => {
     try {
       const res = await fetch(`/api/reports/${reportId}/status`, {
         method: 'PUT',
         headers: { 
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${activeToken}`
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
           status,
           technician_id: currentUser?.role === 'technician' ? currentUser.id : undefined,
           comment_text: commentText,
-          photo_proof: photoProof,
-          voice_proof: voiceProof
+          photo_proof: photoProof
         })
       });
       if (res.ok) {
-        const updatedReport = await res.json();
-        if (updatedReport && updatedReport.id) {
-          setReports(prev => prev.map(r => r.id === reportId ? { ...r, ...updatedReport } : r));
-        } else {
-          fetchReports();
-        }
+        fetchReports();
       } else {
-        // Rollback on server error
-        setReports(previousReports);
-        let errorMsg = 'Failed to update status';
-        try {
-          const d = await res.json();
-          errorMsg = d.error || errorMsg;
-        } catch (_) {}
-        alert(errorMsg);
-        throw new Error(errorMsg);
+        const d = await res.json();
+        alert(d.error || 'Failed to update status');
       }
-    } catch (e: any) {
-      if (e.message && (e.message.includes('Failed to update status') || e.message.includes('Guard') || e.message.includes('Denied'))) {
-        throw e;
-      }
-      console.warn('Network status update failed, caching offline:', e);
-      addOfflineAction({
-        id: `act-${Date.now()}`,
-        type: 'status_change',
-        reportId,
-        payload: {
-          status,
-          technician_id: currentUser?.role === 'technician' ? currentUser.id : undefined,
-          comment_text: commentText,
-          photo_proof: photoProof,
-          voice_proof: voiceProof
-        },
-        created_at: new Date().toISOString()
-      });
-      alert('🛜 Connection issue detected. Status change has been cached locally and will sync once online.');
+    } catch (e) {
+      alert('Error updating status. Connection unavailable.');
     }
   };
 
@@ -672,15 +434,7 @@ export default function App() {
     );
   }
 
-  const unreadCount = notifications.filter(notif => {
-    if (notif.read) return false;
-    if (currentUser?.role === 'technician') {
-      if (notif.user_id && notif.user_id !== currentUser.id) {
-        return false;
-      }
-    }
-    return true;
-  }).length;
+  const unreadCount = notifications.filter(n => !n.read).length;
 
   return (
     <div className="bg-slate-50 text-slate-800 h-full w-full max-w-6xl mx-auto md:shadow-2xl md:my-4 md:rounded-3xl md:h-[calc(100vh-2rem)] relative flex flex-col justify-between overflow-hidden font-sans border-x border-slate-200/60 shadow-xl">
@@ -781,6 +535,11 @@ export default function App() {
               {(() => {
                 const filteredList = notifications.filter(notif => {
                   if (currentUser?.role === 'technician') {
+                    const titleLower = (notif.title || '').toLowerCase();
+                    const msgLower = (notif.message || '').toLowerCase();
+                    if (titleLower.includes('dispatched') || msgLower.includes('dispatched')) {
+                      return false;
+                    }
                     if (notif.user_id && notif.user_id !== currentUser.id) {
                       return false;
                     }
@@ -1013,16 +772,12 @@ export default function App() {
                   onUpdateStatus={handleUpdateStatus}
                   technicians={technicians}
                   onRegisterTechnician={(newTech) => setTechnicians(prev => [...prev, newTech])}
-                  token={token}
-                  isInitialLoading={isInitialLoading}
                 />
               ) : currentUser.role === 'technician' ? (
                 <TechnicianView
                   technicianUserId={currentUser.id}
                   reports={reports}
                   onUpdateStatus={handleUpdateStatus}
-                  onRefresh={fetchReports}
-                  isInitialLoading={isInitialLoading}
                 />
               ) : (
                 <StudentView
@@ -1031,8 +786,6 @@ export default function App() {
                   reports={reports}
                   onUpvote={handleUpvote}
                   onAddComment={handleAddComment}
-                  onRefresh={fetchReports}
-                  isInitialLoading={isInitialLoading}
                 />
               )}
             </div>
