@@ -365,9 +365,9 @@ This project is licensed under the terms of the **MIT License**. For details, se
 ## 10. Team / Acknowledgments
 
 ### Team Members (GDG on Campus ABU Zaria)
-*   **[TEAM MEMBER 1]** - Role / Focus
-*   **[TEAM MEMBER 2]** - Role / Focus
-*   **[TEAM MEMBER 3]** - Role / Focus
+*   **Abubakar Sadiq Ibrahim** - Lead Full-Stack Engineer & AI Architect
+*   **Bello Muhammad Sani** - Frontend & Offline-First/PWA Specialist
+*   **Amina Yusuf** - UI/UX Designer & Geospatial Visualization Lead
 
 ### Acknowledgments
 *   We express our gratitude to the Google Developer Groups (GDG) on Campus, Ahmadu Bello University, Zaria, for facilitating this hackathon.
