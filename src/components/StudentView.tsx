@@ -10,6 +10,7 @@ interface StudentViewProps {
   onAddComment: (reportId: string, text: string) => Promise<void>;
   onDeleteReport?: (reportId: string) => Promise<boolean>;
   onRefresh?: () => Promise<void>;
+  isInitialLoading?: boolean;
 }
 
 const CATEGORY_ICONS: Record<string, string> = {
@@ -28,7 +29,7 @@ const STATUS_CLASSES: Record<ReportStatus, string> = {
   resolved: 'bg-emerald-50 text-emerald-600 border border-emerald-100'
 };
 
-export default function StudentView({ userId, userName, reports, onUpvote, onAddComment, onDeleteReport, onRefresh }: StudentViewProps) {
+export default function StudentView({ userId, userName, reports, onUpvote, onAddComment, onDeleteReport, onRefresh, isInitialLoading }: StudentViewProps) {
   const [filter, setFilter] = useState<'all' | 'mine'>('all');
   const [categoryFilter, setCategoryFilter] = useState<ReportCategory | 'all'>('all');
   const [urgencyFilter, setUrgencyFilter] = useState<number | 'all'>('all');
@@ -259,7 +260,25 @@ export default function StudentView({ userId, userName, reports, onUpvote, onAdd
 
       {/* Issues feed */}
       <div className="space-y-3">
-        {filteredReports.length === 0 ? (
+        {isInitialLoading && filteredReports.length === 0 ? (
+          <div className="space-y-3 animate-pulse">
+            {[1, 2, 3].map((n) => (
+              <div key={n} className="bg-white border border-slate-200/80 p-4 rounded-xl flex gap-3.5 shadow-xs">
+                <div className="flex flex-col items-center justify-center shrink-0 w-10">
+                  <div className="h-6 w-8 bg-slate-100 rounded-md" />
+                </div>
+                <div className="flex-1 space-y-2">
+                  <div className="flex justify-between">
+                    <div className="h-4 w-24 bg-slate-100 rounded-md" />
+                    <div className="h-3 w-16 bg-slate-100 rounded-md" />
+                  </div>
+                  <div className="h-3 w-full bg-slate-100 rounded-md" />
+                  <div className="h-3 w-4/5 bg-slate-100 rounded-md" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : filteredReports.length === 0 ? (
           <div className="bg-white border border-slate-200/80 p-8 rounded-xl text-center text-slate-400 text-xs font-sans">
             No active reports match selected filters. Drop a marker pin on the map to start reporting!
           </div>

@@ -1221,9 +1221,9 @@ async function startServer() {
           final_zone_name = containingZoneRes.rows[0].name;
           console.log(`[PostgreSQL PostGIS] Point is contained in zone: ${final_zone_name} (${final_zone_id})`);
         } else {
-          console.log('[PostgreSQL PostGIS] Point is outside defined zones, defaulting to general campus.');
-          final_zone_id = 'zone-other';
-          final_zone_name = 'ABU Campus (General)';
+          console.log('[PostgreSQL PostGIS] Point is outside defined zones, preserving client-provided zone.');
+          final_zone_id = zone_id || 'zone-other';
+          final_zone_name = zone_name || 'ABU Campus (General)';
         }
       } catch (err) {
         console.error('[PostgreSQL PostGIS Error] Zone containment check failed:', err);
@@ -2041,7 +2041,7 @@ Output your decision as a strict JSON object (no markdown, no quotes, just raw J
     }
 
     const { id } = req.params;
-    const { status, technician_id, comment_text, photo_proof } = req.body;
+    const { status, technician_id, comment_text, photo_proof, voice_proof } = req.body;
 
     if (!status) return res.status(400).json({ error: 'Status is required' });
 
@@ -2066,8 +2066,9 @@ Output your decision as a strict JSON object (no markdown, no quotes, just raw J
     const memReport = db.reports.find((r: Report) => r.id === id);
     if (memReport) {
       memReport.status = status;
-      if (status === 'resolved' && photo_proof) {
-        memReport.photo_url = photo_proof;
+      if (status === 'resolved') {
+        if (photo_proof) memReport.photo_url = photo_proof;
+        if (voice_proof) memReport.voice_url = voice_proof;
       }
     }
 
@@ -2089,6 +2090,9 @@ Output your decision as a strict JSON object (no markdown, no quotes, just raw J
 
       if (photo_proof) {
         report.photo_url = photo_proof; // update with resolved photo
+      }
+      if (voice_proof) {
+        report.voice_url = voice_proof; // update with resolved voice proof
       }
     }
 
@@ -2195,11 +2199,21 @@ Keep your response to exactly 1 or 2 concise, reassuring sentences. Do not use g
       try {
         console.log(`[PostgreSQL Status Update] Syncing report status change to "${status}"...`);
         
-        // 1. Update report status and photo url
-        if (photo_proof) {
+        // 1. Update report status, photo url, and voice url
+        if (photo_proof && voice_proof) {
+          await pool.query(
+            `UPDATE reports SET status = $1, photo_url = $2, voice_url = $3 WHERE id = $4;`,
+            [status, photo_proof, voice_proof, id]
+          );
+        } else if (photo_proof) {
           await pool.query(
             `UPDATE reports SET status = $1, photo_url = $2 WHERE id = $3;`,
             [status, photo_proof, id]
+          );
+        } else if (voice_proof) {
+          await pool.query(
+            `UPDATE reports SET status = $1, voice_url = $2 WHERE id = $3;`,
+            [status, voice_proof, id]
           );
         } else {
           await pool.query(

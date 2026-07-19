@@ -1,20 +1,127 @@
 import React, { useState, useEffect } from 'react';
-import { Wrench, CheckCircle, Navigation, MapPin, Camera, Clock, AlertTriangle, Loader2 } from 'lucide-react';
+import { Wrench, CheckCircle, Navigation, MapPin, Camera, Clock, AlertTriangle, Loader2, Mic, Trash2, Image, Square } from 'lucide-react';
 import { Report, ReportStatus } from '../types';
 
 interface TechnicianViewProps {
   technicianUserId: string;
   reports: Report[];
-  onUpdateStatus: (reportId: string, status: ReportStatus, commentText?: string, photoProof?: string) => Promise<void>;
+  onUpdateStatus: (reportId: string, status: ReportStatus, commentText?: string, photoProof?: string, voiceProof?: string) => Promise<void>;
   onRefresh?: () => Promise<void>;
+  isInitialLoading?: boolean;
 }
 
-export default function TechnicianView({ technicianUserId, reports, onUpdateStatus, onRefresh }: TechnicianViewProps) {
+export default function TechnicianView({ technicianUserId, reports, onUpdateStatus, onRefresh, isInitialLoading }: TechnicianViewProps) {
   const [techProfile, setTechProfile] = useState<any>(null);
   const [activeDetailReportId, setActiveDetailReportId] = useState<string | null>(null);
   const activeDetailReport = reports.find(r => r.id === activeDetailReportId) || null;
   const [updatingReportIds, setUpdatingReportIds] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<string | null>(null);
+
+  // Resolution Dialogue modal states
+  const [resolvingReportId, setResolvingReportId] = useState<string | null>(null);
+  const [resolutionComment, setResolutionComment] = useState('');
+  const [resolutionPhoto, setResolutionPhoto] = useState<string | null>(null);
+  const [resolutionVoice, setResolutionVoice] = useState<string | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingDuration, setRecordingDuration] = useState(0);
+  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
+  const [timerInterval, setTimerInterval] = useState<any | null>(null);
+
+  const formatDuration = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+  };
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      const chunks: Blob[] = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          chunks.push(e.data);
+        }
+      };
+
+      recorder.onstop = () => {
+        const audioBlob = new Blob(chunks, { type: 'audio/webm' });
+        const reader = new FileReader();
+        reader.readAsDataURL(audioBlob);
+        reader.onloadend = () => {
+          setResolutionVoice(reader.result as string);
+        };
+        stream.getTracks().forEach((track) => track.stop());
+      };
+
+      recorder.start();
+      setMediaRecorder(recorder);
+      setIsRecording(true);
+      setRecordingDuration(0);
+
+      const interval = setInterval(() => {
+        setRecordingDuration((prev) => prev + 1);
+      }, 1000);
+      setTimerInterval(interval);
+    } catch (err) {
+      console.error('Error starting audio recording:', err);
+      alert('Could not access microphone. Please ensure microphone permissions are granted.');
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorder && isRecording) {
+      mediaRecorder.stop();
+      setIsRecording(false);
+      if (timerInterval) {
+        clearInterval(timerInterval);
+        setTimerInterval(null);
+      }
+    }
+  };
+
+  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setResolutionPhoto(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const executeResolution = async () => {
+    if (!resolvingReportId) return;
+    setUpdatingReportIds(prev => ({ ...prev, [resolvingReportId]: true }));
+    setError(null);
+
+    try {
+      await onUpdateStatus(
+        resolvingReportId, 
+        'resolved', 
+        resolutionComment || 'Task completed successfully and verified resolved by the assigned technician.',
+        resolutionPhoto || undefined,
+        resolutionVoice || undefined
+      );
+      setResolvingReportId(null);
+      setResolutionComment('');
+      setResolutionPhoto(null);
+      setResolutionVoice(null);
+      setActiveDetailReportId(null);
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || 'Failed to update ticket status.');
+    } finally {
+      setUpdatingReportIds(prev => ({ ...prev, [resolvingReportId]: false }));
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (timerInterval) clearInterval(timerInterval);
+    };
+  }, [timerInterval]);
 
   // Pull-to-Refresh States
   const [touchStart, setTouchStart] = useState<number | null>(null);
@@ -97,16 +204,16 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
   });
 
   const handleUpdate = async (reportId: string, nextStatus: ReportStatus) => {
+    if (nextStatus === 'resolved') {
+      setResolvingReportId(reportId);
+      return;
+    }
+
     setUpdatingReportIds(prev => ({ ...prev, [reportId]: true }));
     setError(null);
 
     try {
-      if (nextStatus === 'resolved') {
-        // Resolve immediately with a clear, automated contextual note as requested for maximum speed
-        await onUpdateStatus(reportId, 'resolved', 'Task completed successfully and verified resolved by the assigned technician.');
-      } else {
-        await onUpdateStatus(reportId, nextStatus);
-      }
+      await onUpdateStatus(reportId, nextStatus);
     } catch (err: any) {
       console.error(err);
       setError(err.message || 'Failed to update ticket status.');
@@ -225,7 +332,26 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
           📋 {techTab === 'active' ? 'My Active Work Queue' : 'My Completed Tasks Archive'} ({filteredReports.length} Shown)
         </h3>
 
-        {filteredReports.length === 0 ? (
+        {isInitialLoading && filteredReports.length === 0 ? (
+          <div className="space-y-4 animate-pulse">
+            {[1, 2, 3].map((n) => (
+              <div key={n} className="bg-white border border-slate-200/80 rounded-2xl p-4 space-y-4 shadow-2xs">
+                <div className="flex justify-between items-center">
+                  <div className="h-4 w-24 bg-slate-100 rounded-md" />
+                  <div className="h-3 w-16 bg-slate-100 rounded-md" />
+                </div>
+                <div className="space-y-2">
+                  <div className="h-3.5 w-full bg-slate-100 rounded-md" />
+                  <div className="h-3.5 w-5/6 bg-slate-100 rounded-md" />
+                </div>
+                <div className="flex gap-2 pt-2 border-t border-slate-50">
+                  <div className="h-8 w-1/2 bg-slate-100 rounded-xl" />
+                  <div className="h-8 w-1/2 bg-slate-100 rounded-xl" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : filteredReports.length === 0 ? (
           <div className="bg-white border border-slate-200 p-10 rounded-2xl text-center text-slate-400 text-xs font-semibold shadow-2xs">
             {currentTabReports.length === 0 
               ? (techTab === 'active' 
@@ -499,6 +625,154 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
                   )}
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Task Completion Dialogue Box (Modal) */}
+      {resolvingReportId && (
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white border border-slate-200 w-full max-w-md rounded-2xl shadow-2xl p-5 space-y-4 max-h-[90vh] overflow-y-auto animate-slide-up">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div>
+                <h4 className="text-sm font-bold text-slate-800 font-sans">
+                  Complete & Resolve Task
+                </h4>
+                <p className="text-[10px] text-slate-400 font-mono">TICKET #{resolvingReportId}</p>
+              </div>
+              <button
+                onClick={() => {
+                  setResolvingReportId(null);
+                  setResolutionComment('');
+                  setResolutionPhoto(null);
+                  setResolutionVoice(null);
+                }}
+                className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-800 font-bold px-2.5 py-1.5 rounded-lg cursor-pointer transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+
+            <div className="space-y-4 text-left">
+              {/* Comment / Resolution details */}
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">
+                  Resolution Details (Required)
+                </label>
+                <textarea
+                  required
+                  placeholder="Provide details about the resolution (e.g. replaced the lightbulb, patched the copper plumbing leak, verified electrical circuit)..."
+                  value={resolutionComment}
+                  onChange={(e) => setResolutionComment(e.target.value)}
+                  className="w-full h-24 p-3 border border-slate-200 rounded-xl text-xs placeholder-slate-400 focus:outline-hidden focus:ring-1 focus:ring-emerald-500 font-medium"
+                />
+              </div>
+
+              {/* Photo Proof uploading */}
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">
+                  Upload Resolution Photo (Optional)
+                </label>
+                <div className="flex items-center gap-3">
+                  <label className="flex items-center gap-1.5 px-3 py-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-xl cursor-pointer text-xs font-bold transition-all">
+                    <Camera size={14} className="text-slate-500" />
+                    <span>Choose Photo</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handlePhotoUpload}
+                      className="hidden"
+                    />
+                  </label>
+                  {resolutionPhoto && (
+                    <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-1">
+                      ✓ Attached
+                      <button
+                        type="button"
+                        onClick={() => setResolutionPhoto(null)}
+                        className="text-rose-500 font-bold hover:underline"
+                      >
+                        Remove
+                      </button>
+                    </span>
+                  )}
+                </div>
+                {resolutionPhoto && (
+                  <div className="mt-2 rounded-xl overflow-hidden border border-slate-200 max-h-32 bg-slate-50">
+                    <img src={resolutionPhoto} alt="Resolution proof preview" className="w-full h-full object-contain" />
+                  </div>
+                )}
+              </div>
+
+              {/* Voice Proof recording */}
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">
+                  Record Voice Explainer (Optional)
+                </label>
+                <div className="flex items-center gap-3">
+                  {isRecording ? (
+                    <button
+                      type="button"
+                      onClick={stopRecording}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl border bg-rose-50 border-rose-200 text-rose-700 text-xs font-bold animate-pulse cursor-pointer"
+                    >
+                      <Square size={12} className="text-rose-600 animate-spin" />
+                      <span>Stop ({formatDuration(recordingDuration)})</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={startRecording}
+                      className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                        resolutionVoice
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                          : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                      }`}
+                    >
+                      <Mic size={14} className={resolutionVoice ? 'text-emerald-600' : 'text-slate-400'} />
+                      <span>{resolutionVoice ? 'Re-record Audio' : 'Record Audio'}</span>
+                    </button>
+                  )}
+
+                  {resolutionVoice && (
+                    <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-1">
+                      ✓ Audio Recorded
+                      <button
+                        type="button"
+                        onClick={() => setResolutionVoice(null)}
+                        className="text-rose-500 font-bold hover:underline"
+                      >
+                        Remove
+                      </button>
+                    </span>
+                  )}
+                </div>
+                {resolutionVoice && (
+                  <div className="mt-2 bg-emerald-50/20 border border-emerald-100 p-2.5 rounded-xl">
+                    <audio controls src={resolutionVoice} className="w-full h-8" />
+                  </div>
+                )}
+              </div>
+
+              {/* Final Submit button */}
+              <button
+                disabled={!resolutionComment.trim() || updatingReportIds[resolvingReportId]}
+                onClick={executeResolution}
+                className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-100 disabled:text-slate-400 text-white font-bold text-xs py-2.5 rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-md active:scale-98"
+              >
+                {updatingReportIds[resolvingReportId] ? (
+                  <>
+                    <Loader2 size={13} className="animate-spin text-white/50" />
+                    <span>Saving Completion...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle size={14} />
+                    <span>Submit & Resolve Ticket</span>
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </div>

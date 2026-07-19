@@ -58,13 +58,29 @@ export default function App() {
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
 
   // Notifications state
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [activeToast, setActiveToast] = useState<Notification | null>(null);
+  const [notifications, setNotifications] = useState<any[]>(() => {
+    try {
+      const cached = localStorage.getItem('campulse-cached-notifications');
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [activeToast, setActiveToast] = useState<any | null>(null);
   const [showNotificationsPanel, setShowNotificationsPanel] = useState(false);
   const [assigningNotifId, setAssigningNotifId] = useState<string | null>(null);
 
   // Technicians state
-  const [technicians, setTechnicians] = useState<Technician[]>([]);
+  const [technicians, setTechnicians] = useState<Technician[]>(() => {
+    try {
+      const cached = localStorage.getItem('campulse-cached-technicians');
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [isInitialLoading, setIsInitialLoading] = useState(reports.length === 0);
 
   // Initialize: register Service Worker, load user from localStorage, setup network listeners
   useEffect(() => {
@@ -260,6 +276,9 @@ export default function App() {
       const data = await res.json();
       if (Array.isArray(data)) {
         setNotifications(data);
+        try {
+          localStorage.setItem('campulse-cached-notifications', JSON.stringify(data));
+        } catch (_) {}
       }
     } catch (err) {
       console.warn('[Notifications] Failed to load history.');
@@ -272,6 +291,9 @@ export default function App() {
       const data = await res.json();
       if (Array.isArray(data)) {
         setTechnicians(data);
+        try {
+          localStorage.setItem('campulse-cached-technicians', JSON.stringify(data));
+        } catch (_) {}
       }
     } catch (err) {
       console.warn('[Technicians] Failed to load technicians list.');
@@ -315,6 +337,8 @@ export default function App() {
       }
     } catch (err) {
       console.warn('Failed to load active reports (running offline mode).');
+    } finally {
+      setIsInitialLoading(false);
     }
   };
 
@@ -383,8 +407,8 @@ export default function App() {
     // Save previous state for potential rollback
     const previousReports = [...reports];
 
-    // 1. Instantly perform optimistic update on local state
-    setReports(prev => prev.map(r => {
+    // 1. Instantly perform optimistic update on local state & persist to cache
+    const updatedReports = reports.map(r => {
       if (r.id === reportId) {
         const upvotedBy = r.upvoted_by || [];
         const idx = upvotedBy.indexOf(currentUser.id);
@@ -400,7 +424,14 @@ export default function App() {
         return { ...r, upvotes: newUpvotes, upvoted_by: newUpvotedBy };
       }
       return r;
-    }));
+    });
+
+    setReports(updatedReports);
+    try {
+      localStorage.setItem('campulse-cached-reports', JSON.stringify(updatedReports));
+    } catch (e) {
+      console.warn('Failed to save optimistic upvote to cache:', e);
+    }
 
     try {
       const res = await fetch(`/api/reports/${reportId}/upvote`, {
@@ -411,12 +442,15 @@ export default function App() {
       if (!res.ok) {
         // Rollback on error
         setReports(previousReports);
+        try {
+          localStorage.setItem('campulse-cached-reports', JSON.stringify(previousReports));
+        } catch (_) {}
       } else {
         // Silently fetch and update reports in the background to ensure data alignment without blocking UI
         const data = await res.json();
         const updatedReport = data && data.report ? data.report : data;
         if (updatedReport && updatedReport.id) {
-          setReports(prev => prev.map(r => {
+          const finalReports = updatedReports.map(r => {
             if (r.id === reportId) {
               return { 
                 ...r, 
@@ -425,7 +459,11 @@ export default function App() {
               };
             }
             return r;
-          }));
+          });
+          setReports(finalReports);
+          try {
+            localStorage.setItem('campulse-cached-reports', JSON.stringify(finalReports));
+          } catch (_) {}
         }
       }
     } catch (e) {
@@ -525,7 +563,7 @@ export default function App() {
   };
 
   // Status Change API call
-  const handleUpdateStatus = async (reportId: string, status: ReportStatus, commentText?: string, photoProof?: string) => {
+  const handleUpdateStatus = async (reportId: string, status: ReportStatus, commentText?: string, photoProof?: string, voiceProof?: string) => {
     // Save previous state for rollback
     const previousReports = [...reports];
 
@@ -543,7 +581,8 @@ export default function App() {
           status,
           technician_id: currentUser?.role === 'technician' ? currentUser.id : undefined,
           comment_text: commentText,
-          photo_proof: photoProof
+          photo_proof: photoProof,
+          voice_proof: voiceProof
         },
         created_at: new Date().toISOString()
       });
@@ -562,7 +601,8 @@ export default function App() {
           status,
           technician_id: currentUser?.role === 'technician' ? currentUser.id : undefined,
           comment_text: commentText,
-          photo_proof: photoProof
+          photo_proof: photoProof,
+          voice_proof: voiceProof
         })
       });
       if (res.ok) {
@@ -596,7 +636,8 @@ export default function App() {
           status,
           technician_id: currentUser?.role === 'technician' ? currentUser.id : undefined,
           comment_text: commentText,
-          photo_proof: photoProof
+          photo_proof: photoProof,
+          voice_proof: voiceProof
         },
         created_at: new Date().toISOString()
       });
@@ -973,6 +1014,7 @@ export default function App() {
                   technicians={technicians}
                   onRegisterTechnician={(newTech) => setTechnicians(prev => [...prev, newTech])}
                   token={token}
+                  isInitialLoading={isInitialLoading}
                 />
               ) : currentUser.role === 'technician' ? (
                 <TechnicianView
@@ -980,6 +1022,7 @@ export default function App() {
                   reports={reports}
                   onUpdateStatus={handleUpdateStatus}
                   onRefresh={fetchReports}
+                  isInitialLoading={isInitialLoading}
                 />
               ) : (
                 <StudentView
@@ -989,6 +1032,7 @@ export default function App() {
                   onUpvote={handleUpvote}
                   onAddComment={handleAddComment}
                   onRefresh={fetchReports}
+                  isInitialLoading={isInitialLoading}
                 />
               )}
             </div>

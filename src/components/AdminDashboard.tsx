@@ -21,6 +21,7 @@ interface AdminDashboardProps {
   technicians?: Technician[];
   onRegisterTechnician?: (newTech: Technician) => void;
   token?: string | null;
+  isInitialLoading?: boolean;
 }
 
 const CATEGORY_LABELS: Record<ReportCategory, string> = {
@@ -65,7 +66,8 @@ export default function AdminDashboard({
   onUpdateStatus,
   technicians: propTechnicians = [],
   onRegisterTechnician,
-  token
+  token,
+  isInitialLoading
 }: AdminDashboardProps) {
   const [technicians, setTechnicians] = useState<Technician[]>(propTechnicians);
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
@@ -707,7 +709,19 @@ export default function AdminDashboard({
           </div>
         </div>
 
-        {filteredReports.length === 0 ? (
+        {isInitialLoading && filteredReports.length === 0 ? (
+          <div className="p-4 space-y-3 animate-pulse">
+            {[1, 2, 3, 4].map((n) => (
+              <div key={n} className="flex items-start gap-3 p-3 bg-slate-50 border border-slate-100 rounded-xl">
+                <div className="h-5 w-8 bg-slate-200 rounded-md" />
+                <div className="flex-1 space-y-2">
+                  <div className="h-4 w-1/3 bg-slate-200 rounded-md" />
+                  <div className="h-3.5 w-full bg-slate-200 rounded-md" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : filteredReports.length === 0 ? (
           <div className="p-8 text-center text-slate-400 text-xs font-sans">
             No report tickets match the selected filters.
           </div>
