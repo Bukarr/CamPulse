@@ -34,6 +34,13 @@
       "name": "John Okoye",
       "email": "jokoye@tech.abu.edu.ng",
       "role": "technician"
+    },
+    {
+      "id": "usr-tech-all",
+      "google_id": "30003",
+      "name": "Aliyu Ibrahim",
+      "email": "aibrahim@tech.abu.edu.ng",
+      "role": "technician"
     }
   ],
   "reports": [
@@ -82,6 +89,48 @@
       "location_hint": "Engineering to Ribadu Walkway",
       "sentiment": "angry",
       "report_count": 1
+    },
+    {
+      "id": "rep-1784460352556",
+      "reporter_id": "usr-student-1",
+      "reporter_name": "Sani Bello",
+      "category": "security",
+      "description": "security concerns",
+      "lat": 11.1517,
+      "lng": 7.6481,
+      "zone_id": "kashim-ibrahim-library",
+      "zone_name": "Kashim Ibrahim Library",
+      "status": "submitted",
+      "priority_score": 3,
+      "is_anonymous": false,
+      "upvotes": 0,
+      "upvoted_by": [],
+      "created_at": "2026-07-19T11:25:52.556Z",
+      "severity": "medium",
+      "location_hint": "not specified",
+      "sentiment": "neutral",
+      "report_count": 1
+    },
+    {
+      "id": "rep-1784461694172",
+      "reporter_id": "usr-admin-1",
+      "reporter_name": "Prof. Ibrahim Usman",
+      "category": "plumbing",
+      "description": "tap leaking",
+      "lat": 11.1523,
+      "lng": 7.6496,
+      "zone_id": "senate-building",
+      "zone_name": "Senate Building",
+      "status": "submitted",
+      "priority_score": 4,
+      "is_anonymous": false,
+      "upvotes": 0,
+      "upvoted_by": [],
+      "created_at": "2026-07-19T11:48:14.172Z",
+      "severity": "high",
+      "location_hint": "ABU Samaru Campus",
+      "sentiment": "neutral",
+      "report_count": 1
     }
   ],
   "technicians": [
@@ -105,9 +154,122 @@
         "structural"
       ],
       "current_load": 0
+    },
+    {
+      "id": "tech-all",
+      "user_id": "usr-tech-all",
+      "name": "Aliyu Ibrahim",
+      "skill_tags": [
+        "broken_lights",
+        "plumbing",
+        "wifi_outage",
+        "security",
+        "structural",
+        "others"
+      ],
+      "current_load": 0
     }
   ],
   "assignments": [],
-  "comments": [],
-  "notifications": []
+  "comments": [
+    {
+      "id": "cmt-1784460352556-triage",
+      "report_id": "rep-1784460352556",
+      "user_id": "usr-admin-1",
+      "user_name": "Gemma 4 AI Triage",
+      "user_role": "admin",
+      "text": "⚡ Gemma 4 AI Intake Analysis:\n• Category: SECURITY\n• Priority Score: 3/5 (MEDIUM)\n• Sentiment/Frustration: NEUTRAL\n• Location Hint: \"not specified\"\n• Status: AI-Categorized & Validated.",
+      "created_at": "2026-07-19T11:25:52.556Z"
+    },
+    {
+      "id": "cmt-1784460748825",
+      "report_id": "rep-1784197900033",
+      "user_id": "usr-admin-1",
+      "user_name": "Prof. Ibrahim Usman",
+      "user_role": "admin",
+      "text": "Status updated from \"resolved\" to \"in_progress\" by Prof. Ibrahim Usman.",
+      "created_at": "2026-07-19T11:32:28.825Z"
+    },
+    {
+      "id": "cmt-1784461694172-triage",
+      "report_id": "rep-1784461694172",
+      "user_id": "usr-admin-1",
+      "user_name": "Gemma 4 AI Triage",
+      "user_role": "admin",
+      "text": "⚡ Gemma 4 AI Intake Analysis:\n• Category: PLUMBING\n• Priority Score: 4/5 (HIGH)\n• Sentiment/Frustration: NEUTRAL\n• Location Hint: \"ABU Samaru Campus\"\n• Status: AI-Categorized & Validated.",
+      "created_at": "2026-07-19T11:48:14.172Z"
+    }
+  ],
+  "notifications": [
+    {
+      "id": "notif-1784460352876",
+      "user_id": "admin",
+      "title": "📋 New Maintenance Ticket",
+      "message": "New security ticket logged at Kashim Ibrahim Library. \"security concerns...\"",
+      "type": "status_change",
+      "reference_id": "rep-1784460352556",
+      "read": false,
+      "created_at": "2026-07-19T11:25:52.876Z"
+    },
+    {
+      "id": "notif-1784460352882-student-submit",
+      "user_id": "usr-student-1",
+      "title": "📝 Report Successfully Logged",
+      "message": "Your report for \"SECURITY\" has been received and is currently under administrative review.",
+      "type": "status_change",
+      "reference_id": "rep-1784460352556",
+      "read": false,
+      "created_at": "2026-07-19T11:25:52.882Z"
+    },
+    {
+      "id": "notif-1784460751505-status",
+      "user_id": "usr-tech-1",
+      "title": "🔄 Ticket Status Updated: IN PROGRESS",
+      "message": "Your report has been moved back to in-progress for further review. We are currently working to resolve the issue and will update you soon.",
+      "type": "status_change",
+      "reference_id": "rep-1784197900033",
+      "read": false,
+      "created_at": "2026-07-19T11:32:31.505Z"
+    },
+    {
+      "id": "notif-1784460751517-inspect-start-admin",
+      "user_id": "admin",
+      "title": "🚀 Inspection Started",
+      "message": "Technician Prof. Ibrahim Usman has started the inspection for Ticket #rep-1784197900033 (OTHERS) in ABU Campus (General).",
+      "type": "status_change",
+      "reference_id": "rep-1784197900033",
+      "read": false,
+      "created_at": "2026-07-19T11:32:31.517Z"
+    },
+    {
+      "id": "notif-1784461702294",
+      "user_id": "admin",
+      "title": "🚨 High Priority Maintenance Alert",
+      "message": "New plumbing ticket logged at Senate Building. \"tap leaking...\"",
+      "type": "high_priority",
+      "reference_id": "rep-1784461694172",
+      "read": false,
+      "created_at": "2026-07-19T11:48:22.294Z"
+    },
+    {
+      "id": "notif-1784461702315-student-submit",
+      "user_id": "usr-admin-1",
+      "title": "📝 Report Successfully Logged",
+      "message": "Your report for \"PLUMBING\" has been received and is currently under administrative review.",
+      "type": "status_change",
+      "reference_id": "rep-1784461694172",
+      "read": false,
+      "created_at": "2026-07-19T11:48:22.315Z"
+    },
+    {
+      "id": "notif-1784461702327-tech",
+      "user_id": "technician",
+      "title": "🚨 High Priority Maintenance Alert",
+      "message": "New plumbing ticket logged at Senate Building. \"tap leaking...\"",
+      "type": "high_priority",
+      "reference_id": "rep-1784461694172",
+      "read": false,
+      "created_at": "2026-07-19T11:48:22.327Z"
+    }
+  ]
 }
