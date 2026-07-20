@@ -220,6 +220,21 @@ export default function App() {
     }
   };
 
+  const handleOpenNotifications = async () => {
+    setShowNotificationsPanel(true);
+    // Optimistic UI: mark all notifications as read immediately so badge clears
+    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+    try {
+      await fetch('/api/notifications/read-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: currentUser?.id })
+      });
+    } catch (err) {
+      console.warn('[Notifications] Offline read-all sync cached');
+    }
+  };
+
   // Sync reports periodically or when network state is verified
   const fetchReports = async () => {
     try {
@@ -539,7 +554,7 @@ export default function App() {
 
           {/* Bell Icon with Badge */}
           <button 
-            onClick={() => setShowNotificationsPanel(true)} 
+            onClick={handleOpenNotifications} 
             className={`relative p-1.5 rounded-lg transition-colors cursor-pointer ${
               hasUnreadHighPriority 
                 ? 'text-rose-600 hover:text-rose-700 hover:bg-rose-50' 
@@ -552,9 +567,11 @@ export default function App() {
               <Bell size={16} />
             )}
             {unreadCount > 0 && (
-              <span className={`absolute top-0.5 right-0.5 w-2 h-2 rounded-full ring-2 ring-white ${
+              <span className={`absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 rounded-full ring-2 ring-white text-[8px] font-extrabold flex items-center justify-center text-white ${
                 hasUnreadHighPriority ? 'bg-rose-600 animate-pulse' : 'bg-emerald-600'
-              }`}></span>
+              }`}>
+                {unreadCount}
+              </span>
             )}
           </button>
         </div>
@@ -629,19 +646,19 @@ export default function App() {
                   <div 
                     key={notif.id}
                     onClick={() => handleMarkAsRead(notif.id)}
-                    className={`p-3.5 rounded-xl border transition-all cursor-pointer relative ${
-                      notif.read 
-                        ? 'bg-slate-50 border-slate-100 text-slate-500' 
-                        : notif.type === 'high_priority'
-                          ? 'bg-rose-50 border-rose-250 text-rose-950 shadow-xs ring-1 ring-rose-500/10'
-                          : 'bg-emerald-50/30 border-emerald-100 text-slate-800 shadow-xs'
+                    className={`p-3.5 rounded-xl border transition-all cursor-pointer relative border-l-4 ${
+                      notif.type === 'high_priority'
+                        ? 'border-l-rose-600 bg-rose-50/20 border-rose-100 text-slate-800 shadow-xs'
+                        : 'border-l-slate-300 bg-slate-50/50 border-slate-100 text-slate-700'
+                    } ${
+                      notif.read ? 'opacity-80' : 'font-semibold shadow-xs bg-white'
                     }`}
                   >
                     <div className="flex justify-between items-start gap-1">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        {notif.type === 'high_priority' && !notif.read && (
-                          <span className="shrink-0 text-[9px] bg-rose-600 text-white font-extrabold px-1.5 py-0.5 rounded tracking-wide uppercase font-mono animate-pulse">
-                            EMERGENCY
+                      <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+                        {notif.type === 'high_priority' && (
+                          <span className="shrink-0 text-[8px] bg-rose-600 text-white font-extrabold px-1.5 py-0.5 rounded tracking-wide uppercase font-mono flex items-center gap-0.5 shadow-sm">
+                            <span className="w-1 h-1 rounded-full bg-white animate-pulse" /> HIGH-PRIORITY
                           </span>
                         )}
                         <span className="text-xs font-bold font-sans tracking-tight truncate">
@@ -654,7 +671,7 @@ export default function App() {
                         }`}></span>
                       )}
                     </div>
-                    <p className="text-[10px] leading-relaxed mt-1">{notif.message}</p>
+                    <p className="text-[10px] leading-relaxed mt-1 text-slate-600">{notif.message}</p>
                     {(() => {
                       if (!notif.reference_id) return null;
                       const matchedReport = reports.find(r => r.id === notif.reference_id);

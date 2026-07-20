@@ -3,6 +3,7 @@ import { Camera, MapPin, Sparkles, Send, WifiOff, CheckCircle, Search, ChevronDo
 import { ReportCategory, OfflineReportQueueItem } from '../types';
 import { findZoneForCoordinates, abuZones } from '../data/abuZones';
 import { addOfflineReport, getOfflineReports } from '../utils/offlineQueue';
+import { Lightbox } from './Lightbox';
 
 interface ReportFormProps {
   userId: string;
@@ -49,6 +50,7 @@ export default function ReportForm({ userId, reportingCoords, onSuccess, onCance
 
   // Photo state
   const [photoBase64, setPhotoBase64] = useState<string | undefined>(undefined);
+  const [lightboxImg, setLightboxImg] = useState<string | null>(null);
 
   // Voice recording states
   const [isRecording, setIsRecording] = useState(false);
@@ -447,7 +449,12 @@ export default function ReportForm({ userId, reportingCoords, onSuccess, onCance
                 <div className="bg-slate-200/60 border border-slate-300/30 rounded-xl px-3 py-1 text-[10px] text-slate-500 font-medium flex items-center gap-1.5 font-sans">
                   <span>{msg.text}</span>
                   {msg.photoUrl && (
-                    <img src={msg.photoUrl} className="w-4 h-4 rounded object-cover border border-slate-300" />
+                    <img 
+                      src={msg.photoUrl} 
+                      className="w-6 h-6 rounded object-cover border border-slate-300 cursor-zoom-in hover:scale-110 transition-transform duration-200"
+                      onClick={() => setLightboxImg(msg.photoUrl || null)}
+                      alt="Proof Thumb"
+                    />
                   )}
                 </div>
               </div>
@@ -748,6 +755,14 @@ export default function ReportForm({ userId, reportingCoords, onSuccess, onCance
           </button>
         </div>
       </div>
+
+      {lightboxImg && (
+        <Lightbox 
+          src={lightboxImg} 
+          onClose={() => setLightboxImg(null)} 
+          alt="Report Photo Proof" 
+        />
+      )}
 
     </div>
   );

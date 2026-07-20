@@ -786,6 +786,40 @@ async function startServer() {
     res.json({ success: true });
   });
 
+  // Mark all notifications as read for a specific user
+  app.post('/api/notifications/read-all', async (req, res) => {
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ error: 'userId is required' });
+
+    let user: any = null;
+    const pool = getPgPool();
+    if (pool) {
+      try {
+        const userRes = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
+        if (userRes.rows.length > 0) {
+          user = userRes.rows[0];
+        }
+      } catch (err) {
+        console.error('[PostgreSQL Error] Failed to fetch user for notifications mark read:', err);
+      }
+    }
+    if (!user) {
+      user = db.users.find((u: any) => u.id === userId);
+    }
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    if (!db.notifications) db.notifications = [];
+
+    for (const n of db.notifications) {
+      if (await shouldUserReceiveNotification(user, n)) {
+        n.read = true;
+      }
+    }
+
+    saveDatabase(db);
+    res.json({ success: true });
+  });
+
   // Auth Google Mock/Verify
   app.post('/api/auth/google', async (req, res) => {
     const { token, email, name, roleSelection } = req.body;
