@@ -1125,6 +1125,26 @@ async function startServer() {
           final_zone_id = zone_id || 'zone-other';
           final_zone_name = zone_name || 'ABU Campus (General)';
         }
+
+        // Validate final_zone_id exists in the database to prevent foreign key violation
+        if (final_zone_id) {
+          const zoneCheckRes = await pool.query('SELECT 1 FROM zones WHERE id = $1 LIMIT 1;', [final_zone_id]);
+          if (zoneCheckRes.rows.length === 0) {
+            console.log(`[PostgreSQL] Zone ID '${final_zone_id}' does not exist in 'zones' table. Falling back to satisfy foreign key.`);
+            const zoneOtherCheck = await pool.query("SELECT 1 FROM zones WHERE id = 'zone-other' LIMIT 1;");
+            if (zoneOtherCheck.rows.length > 0) {
+              final_zone_id = 'zone-other';
+            } else {
+              const anyZoneRes = await pool.query("SELECT id, name FROM zones LIMIT 1;");
+              if (anyZoneRes.rows.length > 0) {
+                final_zone_id = anyZoneRes.rows[0].id;
+                final_zone_name = anyZoneRes.rows[0].name;
+              } else {
+                final_zone_id = null; // Setting to null prevents foreign key constraint violation perfectly!
+              }
+            }
+          }
+        }
       } catch (err) {
         console.error('[PostgreSQL PostGIS Error] Zone containment check failed:', err);
       }
