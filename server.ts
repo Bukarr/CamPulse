@@ -1121,9 +1121,9 @@ async function startServer() {
           final_zone_name = containingZoneRes.rows[0].name;
           console.log(`[PostgreSQL PostGIS] Point is contained in zone: ${final_zone_name} (${final_zone_id})`);
         } else {
-          console.log('[PostgreSQL PostGIS] Point is outside defined zones, defaulting to general campus.');
-          final_zone_id = 'zone-other';
-          final_zone_name = 'ABU Campus (General)';
+          console.log('[PostgreSQL PostGIS] Point is outside defined zones, falling back to selected zone.');
+          final_zone_id = zone_id || 'zone-other';
+          final_zone_name = zone_name || 'ABU Campus (General)';
         }
       } catch (err) {
         console.error('[PostgreSQL PostGIS Error] Zone containment check failed:', err);

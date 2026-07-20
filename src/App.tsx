@@ -508,6 +508,7 @@ export default function App() {
   });
 
   const unreadCount = visibleNotifications.filter(n => !n.read).length;
+  const hasUnreadHighPriority = visibleNotifications.some(n => !n.read && n.type === 'high_priority');
 
   return (
     <div className="bg-slate-50 text-slate-800 h-full w-full max-w-6xl mx-auto md:shadow-2xl md:my-4 md:rounded-3xl md:h-[calc(100vh-2rem)] relative flex flex-col justify-between overflow-hidden font-sans border-x border-slate-200/60 shadow-xl">
@@ -539,15 +540,21 @@ export default function App() {
           {/* Bell Icon with Badge */}
           <button 
             onClick={() => setShowNotificationsPanel(true)} 
-            className="relative p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+            className={`relative p-1.5 rounded-lg transition-colors cursor-pointer ${
+              hasUnreadHighPriority 
+                ? 'text-rose-600 hover:text-rose-700 hover:bg-rose-50' 
+                : 'text-slate-500 hover:text-emerald-600 hover:bg-slate-100'
+            }`}
           >
             {unreadCount > 0 ? (
-              <BellRing size={16} className="text-emerald-600 animate-bounce" />
+              <BellRing size={16} className={`${hasUnreadHighPriority ? 'text-rose-600' : 'text-emerald-600'} animate-bounce`} />
             ) : (
               <Bell size={16} />
             )}
             {unreadCount > 0 && (
-              <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-emerald-600 rounded-full ring-2 ring-white"></span>
+              <span className={`absolute top-0.5 right-0.5 w-2 h-2 rounded-full ring-2 ring-white ${
+                hasUnreadHighPriority ? 'bg-rose-600 animate-pulse' : 'bg-emerald-600'
+              }`}></span>
             )}
           </button>
         </div>
@@ -625,15 +632,26 @@ export default function App() {
                     className={`p-3.5 rounded-xl border transition-all cursor-pointer relative ${
                       notif.read 
                         ? 'bg-slate-50 border-slate-100 text-slate-500' 
-                        : 'bg-emerald-50/30 border-emerald-100 text-slate-800 shadow-xs'
+                        : notif.type === 'high_priority'
+                          ? 'bg-rose-50 border-rose-250 text-rose-950 shadow-xs ring-1 ring-rose-500/10'
+                          : 'bg-emerald-50/30 border-emerald-100 text-slate-800 shadow-xs'
                     }`}
                   >
                     <div className="flex justify-between items-start gap-1">
-                      <span className="text-xs font-bold font-sans tracking-tight">
-                        {notif.title}
-                      </span>
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        {notif.type === 'high_priority' && !notif.read && (
+                          <span className="shrink-0 text-[9px] bg-rose-600 text-white font-extrabold px-1.5 py-0.5 rounded tracking-wide uppercase font-mono animate-pulse">
+                            EMERGENCY
+                          </span>
+                        )}
+                        <span className="text-xs font-bold font-sans tracking-tight truncate">
+                          {notif.title}
+                        </span>
+                      </div>
                       {!notif.read && (
-                        <span className="w-1.5 h-1.5 bg-emerald-600 rounded-full mt-1.5 shrink-0"></span>
+                        <span className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${
+                          notif.type === 'high_priority' ? 'bg-rose-600 animate-pulse' : 'bg-emerald-600'
+                        }`}></span>
                       )}
                     </div>
                     <p className="text-[10px] leading-relaxed mt-1">{notif.message}</p>
