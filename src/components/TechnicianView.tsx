@@ -1,6 +1,36 @@
 import React, { useState, useEffect } from 'react';
 import { Wrench, CheckCircle, Navigation, MapPin, Camera, Clock, AlertTriangle } from 'lucide-react';
 import { Report, ReportStatus } from '../types';
+import { MapContainer, TileLayer, Marker } from 'react-leaflet';
+import L from 'leaflet';
+import { Lightbox } from './Lightbox';
+
+// Create high-contrast SVG marker for precise map preview
+const PREVIEW_PIN_COLORS: Record<string, string> = {
+  broken_lights: '#f59e0b',
+  plumbing: '#3b82f6',
+  wifi_outage: '#8b5cf6',
+  security: '#ef4444',
+  structural: '#10b981',
+  others: '#64748b'
+};
+
+function createPreviewIcon(category: string) {
+  const color = PREVIEW_PIN_COLORS[category] || '#64748b';
+  return L.divIcon({
+    className: 'custom-leaflet-marker',
+    html: `
+      <div class="relative flex flex-col items-center animate-bounce">
+        <svg style="width: 22px; height: 26px;" class="drop-shadow-md" viewBox="0 0 24 30" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 0C5.37 0 0 5.37 0 12C0 19.5 12 30 12 30C12 30 24 19.5 24 12C24 5.37 18.63 0 12 0Z" fill="${color}" />
+          <circle cx="12" cy="12" r="5" fill="white" />
+        </svg>
+      </div>
+    `,
+    iconSize: [22, 26],
+    iconAnchor: [11, 26]
+  });
+}
 
 interface TechnicianViewProps {
   technicianUserId: string;
@@ -12,6 +42,7 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
   const [assignedReports, setAssignedReports] = useState<Report[]>([]);
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
   const [activeDetailReport, setActiveDetailReport] = useState<Report | null>(null);
+  const [lightboxImg, setLightboxImg] = useState<string | null>(null);
   const [photoProof, setPhotoProof] = useState<string | undefined>(undefined);
   const [commentText, setCommentText] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -241,8 +272,16 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
 
                 {/* Photo summary */}
                 {report.photo_url && (
-                  <div className="rounded-xl overflow-hidden border border-slate-100 max-h-36 shadow-xs">
-                    <img src={report.photo_url} alt="Issue location" className="w-full h-full object-cover" />
+                  <div 
+                    className="rounded-xl overflow-hidden border border-slate-100 max-h-36 relative group cursor-zoom-in shadow-xs transition-all duration-300 hover:shadow-md"
+                    onClick={() => setLightboxImg(report.photo_url || null)}
+                  >
+                    <img src={report.photo_url} alt="Issue location" className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-300" />
+                    <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity duration-200">
+                      <span className="bg-slate-900/80 backdrop-blur-md text-white text-[9px] font-bold py-1 px-2.5 rounded-full flex items-center gap-1 shadow-md border border-white/10">
+                        🔍 View Full Screen
+                      </span>
+                    </div>
                   </div>
                 )}
 
@@ -363,12 +402,17 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
                   </label>
 
                   {photoProof ? (
-                    <div className="relative w-16 h-16 rounded-xl overflow-hidden border border-slate-200 shadow-xs">
-                      <img src={photoProof} alt="Proof" className="w-full h-full object-cover" />
+                    <div className="relative w-16 h-16 rounded-xl overflow-hidden border border-slate-200 shadow-xs cursor-zoom-in group">
+                      <img 
+                        src={photoProof} 
+                        alt="Proof" 
+                        className="w-full h-full object-cover group-hover:scale-[1.05] transition-transform duration-200" 
+                        onClick={() => setLightboxImg(photoProof || null)}
+                      />
                       <button
                         type="button"
                         onClick={() => setPhotoProof(undefined)}
-                        className="absolute top-0.5 right-0.5 bg-slate-900/80 hover:bg-slate-900 text-white p-0.5 rounded-full text-[8px]"
+                        className="absolute top-0.5 right-0.5 bg-slate-900/85 hover:bg-slate-900 text-white p-0.5 rounded-full text-[8px] z-10 cursor-pointer"
                       >
                         ✕
                       </button>
@@ -482,8 +526,16 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
               {activeDetailReport.photo_url && (
                 <div className="space-y-1">
                   <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono">Attached Image Proof</h5>
-                  <div className="rounded-xl overflow-hidden border border-slate-200 max-h-60 shadow-xs">
-                    <img src={activeDetailReport.photo_url} alt="Task proof" className="w-full h-full object-contain bg-slate-50" />
+                  <div 
+                    className="rounded-xl overflow-hidden border border-slate-200 max-h-60 relative group cursor-zoom-in shadow-xs transition-all duration-300 hover:shadow-md"
+                    onClick={() => setLightboxImg(activeDetailReport.photo_url || null)}
+                  >
+                    <img src={activeDetailReport.photo_url} alt="Task proof" className="w-full h-full object-contain bg-slate-50 group-hover:scale-[1.01] transition-transform duration-300" />
+                    <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity duration-200">
+                      <span className="bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-bold py-1 px-2.5 rounded-full flex items-center gap-1 shadow-md border border-white/10">
+                        🔍 Tap to view full screen
+                      </span>
+                    </div>
                   </div>
                 </div>
               )}
@@ -504,15 +556,37 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
               )}
 
               {/* Location info */}
-              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200/50 space-y-1.5 text-xs">
-                <div className="flex items-center gap-2 text-slate-600 font-semibold">
-                  <MapPin size={14} className="text-rose-500 shrink-0" />
-                  <span>{activeDetailReport.zone_name}</span>
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200/50 space-y-2 text-xs">
+                <div className="flex justify-between items-center gap-2">
+                  <div className="flex items-center gap-2 text-slate-600 font-semibold">
+                    <MapPin size={14} className="text-rose-500 shrink-0" />
+                    <span>{activeDetailReport.zone_name}</span>
+                  </div>
+                  <span className="text-[9px] text-slate-500 font-mono bg-slate-100/80 px-2 py-1 rounded border border-slate-200/50 shrink-0 select-all">
+                    {activeDetailReport.lat.toFixed(5)}, {activeDetailReport.lng.toFixed(5)}
+                  </span>
                 </div>
-                <div className="text-[10px] text-slate-400 font-mono">
-                  Coordinates: Lat {activeDetailReport.lat.toFixed(5)}, Lng {activeDetailReport.lng.toFixed(5)}
+
+                {/* Embedded Mini Leaflet Map showing exact pin */}
+                <div className="h-32 w-full rounded-xl overflow-hidden border border-slate-200 mt-1 relative z-10">
+                  <MapContainer
+                    center={[activeDetailReport.lat, activeDetailReport.lng]}
+                    zoom={17}
+                    scrollWheelZoom={false}
+                    zoomControl={false}
+                    dragging={false}
+                    className="w-full h-full"
+                    style={{ background: '#f1f5f9' }}
+                  >
+                    <TileLayer url="https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}" />
+                    <Marker 
+                      position={[activeDetailReport.lat, activeDetailReport.lng]} 
+                      icon={createPreviewIcon(activeDetailReport.category)}
+                    />
+                  </MapContainer>
                 </div>
-                <div className="pt-2 border-t border-slate-200/60 flex gap-2">
+
+                <div className="pt-1 flex gap-2">
                   <a
                     href={`https://www.google.com/maps/dir/?api=1&destination=${activeDetailReport.lat},${activeDetailReport.lng}`}
                     target="_blank"
@@ -555,6 +629,13 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
           </div>
         </div>
       )}
+
+      {/* Lightbox for report photo proofs */}
+      <Lightbox 
+        src={lightboxImg} 
+        onClose={() => setLightboxImg(null)} 
+        alt="Maintenance Job Evidence Proof"
+      />
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Wrench, Clock, AlertTriangle, CheckSquare, Search, Filter, ArrowUpDown, ChevronRight, BarChart3, Users } from 'lucide-react';
+import { Shield, Wrench, Clock, AlertTriangle, CheckSquare, Search, Filter, ArrowUpDown, ChevronRight, BarChart3, Users, MapPin, Navigation } from 'lucide-react';
 import { 
   BarChart, 
   Bar, 
@@ -12,6 +12,36 @@ import {
 } from 'recharts';
 import { Report, AbuZone, ReportCategory, ReportStatus, Technician } from '../types';
 import { abuZones } from '../data/abuZones';
+import { MapContainer, TileLayer, Marker } from 'react-leaflet';
+import L from 'leaflet';
+import { Lightbox } from './Lightbox';
+
+// Create high-contrast SVG marker for precise map preview
+const PREVIEW_PIN_COLORS: Record<string, string> = {
+  broken_lights: '#f59e0b',
+  plumbing: '#3b82f6',
+  wifi_outage: '#8b5cf6',
+  security: '#ef4444',
+  structural: '#10b981',
+  others: '#64748b'
+};
+
+function createPreviewIcon(category: string) {
+  const color = PREVIEW_PIN_COLORS[category] || '#64748b';
+  return L.divIcon({
+    className: 'custom-leaflet-marker',
+    html: `
+      <div class="relative flex flex-col items-center animate-bounce">
+        <svg style="width: 22px; height: 26px;" class="drop-shadow-md" viewBox="0 0 24 30" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 0C5.37 0 0 5.37 0 12C0 19.5 12 30 12 30C12 30 24 19.5 24 12C24 5.37 18.63 0 12 0Z" fill="${color}" />
+          <circle cx="12" cy="12" r="5" fill="white" />
+        </svg>
+      </div>
+    `,
+    iconSize: [22, 26],
+    iconAnchor: [11, 26]
+  });
+}
 
 interface AdminDashboardProps {
   reports: Report[];
@@ -54,6 +84,7 @@ export default function AdminDashboard({
 }: AdminDashboardProps) {
   const [technicians, setTechnicians] = useState<Technician[]>(propTechnicians);
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
+  const [lightboxImg, setLightboxImg] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<ReportStatus | 'all'>('all');
   const [categoryFilter, setCategoryFilter] = useState<ReportCategory | 'all'>('all');
@@ -764,10 +795,63 @@ export default function AdminDashboard({
               )}
 
               {selectedReport.photo_url && (
-                <div className="rounded-xl overflow-hidden border border-slate-100 max-h-40">
-                  <img src={selectedReport.photo_url} alt="Proof" className="w-full h-full object-cover" />
+                <div 
+                  className="rounded-xl overflow-hidden border border-slate-100 max-h-40 relative group cursor-zoom-in shadow-xs transition-all duration-300 hover:shadow-md"
+                  onClick={() => setLightboxImg(selectedReport.photo_url || null)}
+                >
+                  <img src={selectedReport.photo_url} alt="Proof" className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-300" />
+                  <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity duration-200">
+                    <span className="bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-bold py-1 px-2.5 rounded-full flex items-center gap-1 shadow-md border border-white/10">
+                      🔍 Tap to view full screen
+                    </span>
+                  </div>
                 </div>
               )}
+
+              {/* Precise Location & Coordinates Card */}
+              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-100 space-y-2 text-xs">
+                <span className="text-[9px] uppercase font-bold text-slate-400 block tracking-wider font-mono flex items-center gap-1">
+                  <MapPin size={10} className="text-rose-500" /> Precise GPS Coordinates
+                </span>
+                <div className="flex justify-between items-center gap-2">
+                  <span className="font-semibold text-slate-700 truncate max-w-[60%]">
+                    Zone: <span className="text-emerald-600">{selectedReport.zone_name}</span>
+                  </span>
+                  <span className="text-[9px] text-slate-500 font-mono bg-slate-100/80 px-2 py-1 rounded border border-slate-200/50 shrink-0 select-all">
+                    {selectedReport.lat.toFixed(5)}, {selectedReport.lng.toFixed(5)}
+                  </span>
+                </div>
+                
+                {/* Embedded Mini Leaflet Map showing exact pin */}
+                <div className="h-32 w-full rounded-xl overflow-hidden border border-slate-200 mt-1 relative z-10">
+                  <MapContainer
+                    center={[selectedReport.lat, selectedReport.lng]}
+                    zoom={17}
+                    scrollWheelZoom={false}
+                    zoomControl={false}
+                    dragging={false}
+                    className="w-full h-full"
+                    style={{ background: '#f1f5f9' }}
+                  >
+                    <TileLayer url="https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}" />
+                    <Marker 
+                      position={[selectedReport.lat, selectedReport.lng]} 
+                      icon={createPreviewIcon(selectedReport.category)}
+                    />
+                  </MapContainer>
+                </div>
+
+                <div className="pt-1 flex gap-1.5">
+                  <a
+                    href={`https://www.google.com/maps/dir/?api=1&destination=${selectedReport.lat},${selectedReport.lng}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex-1 bg-white hover:bg-slate-100 border border-slate-200 text-slate-600 font-bold py-1.5 px-3 rounded-lg flex items-center justify-center gap-1 transition-colors text-[9px] cursor-pointer"
+                  >
+                    <Navigation size={10} /> Open Route in Google Maps
+                  </a>
+                </div>
+              </div>
             </div>
 
             {/* Assignment action selection */}
@@ -871,6 +955,15 @@ export default function AdminDashboard({
             )}
           </div>
         </div>
+      )}
+
+      {/* Lightbox for report photo proofs */}
+      {selectedReport && (
+        <Lightbox 
+          src={lightboxImg} 
+          onClose={() => setLightboxImg(null)} 
+          alt={`${selectedReport.category.replace('_', ' ').toUpperCase()} Maintenance Proof`}
+        />
       )}
     </div>
   );

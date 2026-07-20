@@ -493,7 +493,21 @@ export default function App() {
     );
   }
 
-  const unreadCount = notifications.filter(n => !n.read).length;
+  const visibleNotifications = notifications.filter(notif => {
+    if (currentUser?.role === 'technician') {
+      const titleLower = (notif.title || '').toLowerCase();
+      const msgLower = (notif.message || '').toLowerCase();
+      if (titleLower.includes('dispatched') || msgLower.includes('dispatched')) {
+        return false;
+      }
+      if (notif.user_id && notif.user_id !== currentUser.id) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  const unreadCount = visibleNotifications.filter(n => !n.read).length;
 
   return (
     <div className="bg-slate-50 text-slate-800 h-full w-full max-w-6xl mx-auto md:shadow-2xl md:my-4 md:rounded-3xl md:h-[calc(100vh-2rem)] relative flex flex-col justify-between overflow-hidden font-sans border-x border-slate-200/60 shadow-xl">
@@ -592,19 +606,7 @@ export default function App() {
             {/* Notification List */}
             <div className="flex-1 overflow-y-auto p-4 space-y-2.5">
               {(() => {
-                const filteredList = notifications.filter(notif => {
-                  if (currentUser?.role === 'technician') {
-                    const titleLower = (notif.title || '').toLowerCase();
-                    const msgLower = (notif.message || '').toLowerCase();
-                    if (titleLower.includes('dispatched') || msgLower.includes('dispatched')) {
-                      return false;
-                    }
-                    if (notif.user_id && notif.user_id !== currentUser.id) {
-                      return false;
-                    }
-                  }
-                  return true;
-                });
+                const filteredList = visibleNotifications;
 
                 if (filteredList.length === 0) {
                   return (
