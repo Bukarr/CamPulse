@@ -208,7 +208,6 @@ async function initializePostgres() {
 }
 
 const PORT = 3000;
-const DB_FILE = path.join(process.cwd(), 'db.json');
 
 // Types for DB
 interface User {
@@ -434,133 +433,37 @@ interface Notification {
   created_at: string;
 }
 
-// Initial Seeds
-const DEFAULT_USERS: User[] = [
-  { id: 'usr-student-1', google_id: '10001', name: 'Sani Bello', email: 'sbello@student.abu.edu.ng', role: 'student' },
-  { id: 'usr-student-2', google_id: '10002', name: 'Amina Yusuf', email: 'ayusuf@student.abu.edu.ng', role: 'student' },
-  { id: 'usr-admin-1', google_id: '20001', name: 'Prof. Ibrahim Usman', email: 'iusman@abu.edu.ng', role: 'admin' },
-  { id: 'usr-tech-1', google_id: '30001', name: 'Musa Garba', email: 'mgarba@tech.abu.edu.ng', role: 'technician' },
-  { id: 'usr-tech-2', google_id: '30002', name: 'John Okoye', email: 'jokoye@tech.abu.edu.ng', role: 'technician' },
-  { id: 'usr-tech-all', google_id: '30003', name: 'Aliyu Ibrahim', email: 'aibrahim@tech.abu.edu.ng', role: 'technician' }
-];
-
-const DEFAULT_TECHNICIANS: Technician[] = [
-  { id: 'tech-1', user_id: 'usr-tech-1', name: 'Musa Garba', skill_tags: ['broken_lights', 'wifi_outage', 'security'], current_load: 0 },
-  { id: 'tech-2', user_id: 'usr-tech-2', name: 'John Okoye', skill_tags: ['plumbing', 'structural'], current_load: 0 },
-  { id: 'tech-all', user_id: 'usr-tech-all', name: 'Aliyu Ibrahim', skill_tags: ['broken_lights', 'plumbing', 'wifi_outage', 'security', 'structural', 'others'], current_load: 0 }
-];
-
-const DEFAULT_REPORTS: Report[] = [
-  {
-    id: 'rep-seed-1',
-    reporter_id: 'usr-student-1',
-    reporter_name: 'Sani Bello',
-    category: 'plumbing',
-    description: 'Main borehole water pipe leaking near Suleiman Hostel Gate. Flooding the entrance walkway.',
-    lat: 11.1442,
-    lng: 7.7123,
-    zone_id: 'zone-suleiman',
-    zone_name: 'Suleiman Hall',
-    status: 'submitted',
-    priority_score: 4,
-    is_anonymous: false,
-    upvotes: 3,
-    upvoted_by: ['usr-student-2'],
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    severity: 'high',
-    location_hint: 'Suleiman Hostel Gate',
-    sentiment: 'frustrated',
-    report_count: 1
-  },
-  {
-    id: 'rep-seed-2',
-    reporter_id: 'usr-student-2',
-    reporter_name: 'Amina Yusuf',
-    category: 'broken_lights',
-    description: 'Walkway lights completely dark from Faculty of Engineering to Ribadu Hall. Total blackout, high security concern.',
-    lat: 11.1465,
-    lng: 7.7110,
-    zone_id: 'zone-ribadu',
-    zone_name: 'Ribadu Hall',
-    status: 'assigned',
-    priority_score: 5,
-    is_anonymous: false,
-    upvotes: 5,
-    upvoted_by: ['usr-student-1'],
-    created_at: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(),
-    severity: 'urgent',
-    location_hint: 'Engineering to Ribadu Walkway',
-    sentiment: 'angry',
-    report_count: 1
-  }
-];
-
-const DEFAULT_ASSIGNMENTS: Assignment[] = [];
-
-const DEFAULT_COMMENTS: Comment[] = [];
-
-const DEFAULT_NOTIFICATIONS: Notification[] = [];
-
-// Load or Seed DB
-function loadDatabase() {
-  if (fs.existsSync(DB_FILE)) {
-    try {
-      const raw = fs.readFileSync(DB_FILE, 'utf-8');
-      const parsed = JSON.parse(raw);
-      if (!parsed.notifications) parsed.notifications = [];
-      
-      // Programmatically ensure the new general technician account is created
-      if (parsed.users && !parsed.users.some((u: any) => u.id === 'usr-tech-all')) {
-        parsed.users.push({ id: 'usr-tech-all', google_id: '30003', name: 'Aliyu Ibrahim', email: 'aibrahim@tech.abu.edu.ng', role: 'technician' });
-      }
-      if (parsed.technicians && !parsed.technicians.some((t: any) => t.id === 'tech-all')) {
-        parsed.technicians.push({ id: 'tech-all', user_id: 'usr-tech-all', name: 'Aliyu Ibrahim', skill_tags: ['broken_lights', 'plumbing', 'wifi_outage', 'security', 'structural', 'others'], current_load: 0 });
-      }
-
-      return parsed;
-    } catch (e) {
-      console.error('Error reading db file, resetting', e);
-    }
-  }
-  
-  const initialDb = {
-    users: DEFAULT_USERS,
-    reports: DEFAULT_REPORTS,
-    technicians: DEFAULT_TECHNICIANS,
-    assignments: DEFAULT_ASSIGNMENTS,
-    comments: DEFAULT_COMMENTS,
-    notifications: DEFAULT_NOTIFICATIONS
-  };
-  fs.writeFileSync(DB_FILE, JSON.stringify(initialDb, null, 2));
-  return initialDb;
-}
-
-function saveDatabase(data: any) {
-  // Inert: Disable writes to db.json to prevent file watcher from restarting the server, ensuring Postgres is the sole source of truth while keeping in-memory db as fallback
-}
+// Initial Seeds and fallback database helpers have been removed to use direct PostgreSQL only.
 
 async function startServer() {
   const app = express();
   app.use(express.json({ limit: '10mb' }));
 
   // Ensure DB is initialized
-  let db = loadDatabase();
   await initializePostgres();
 
   // Helper to authenticate user from headers (Strict Auth)
-  function getAuthenticatedUser(req: express.Request) {
+  async function getAuthenticatedUser(req: express.Request) {
     const authHeader = req.headers.authorization;
     if (!authHeader) return null;
     const parts = authHeader.replace('Bearer session-jwt-', '').split('-');
     const userId = parts.length > 1 ? parts.slice(0, -1).join('-') : parts[0];
-    return db.users.find((u: User) => u.id === userId) || null;
+    const pool = getPgPool();
+    if (!pool) return null;
+    try {
+      const res = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
+      return res.rows[0] || null;
+    } catch (err) {
+      console.error('[PostgreSQL Error] Auth user lookup failed:', err);
+      return null;
+    }
   }
 
   // SSE client tracker for real-time notifications
   const sseClients: { userId: string; res: express.Response }[] = [];
 
   // Helper to determine if a notification should be delivered to a given user based on role-based rules
-  async function shouldUserReceiveNotification(user: any, notification: Notification): Promise<boolean> {
+  async function shouldUserReceiveNotification(user: any, notification: any): Promise<boolean> {
     if (!user) return false;
 
     // 1. If user is an Admin
@@ -584,26 +487,19 @@ async function startServer() {
       
       // If it refers to a specific report, ensure they are either the reporter or an upvoter
       if (notification.reference_id) {
-        let report: any = null;
         const pool = getPgPool();
         if (pool) {
           try {
             const reportRes = await pool.query('SELECT reporter_id, upvoted_by FROM reports WHERE id = $1', [notification.reference_id]);
             if (reportRes.rows.length > 0) {
-              report = reportRes.rows[0];
+              const report = reportRes.rows[0];
+              const isReporter = report.reporter_id === user.id;
+              const isUpvoter = report.upvoted_by && report.upvoted_by.includes(user.id);
+              return isReporter || isUpvoter;
             }
           } catch (err) {
             console.error('[PostgreSQL Error] failed to fetch report for notification:', err);
           }
-        }
-        if (!report) {
-          report = db.reports.find((r: any) => r.id === notification.reference_id);
-        }
-
-        if (report) {
-          const isReporter = report.reporter_id === user.id;
-          const isUpvoter = report.upvoted_by && report.upvoted_by.includes(user.id);
-          return isReporter || isUpvoter;
         }
         return false;
       }
@@ -615,18 +511,34 @@ async function startServer() {
   }
 
   // Broadcast and save real-time notifications
-  async function sendLiveNotification(notification: Notification, targetRole?: 'admin' | 'technician' | 'student') {
-    if (!db.notifications) {
-      db.notifications = [];
+  async function sendLiveNotification(notification: any, targetRole?: 'admin' | 'technician' | 'student') {
+    const pool = getPgPool();
+    if (pool) {
+      try {
+        await pool.query(
+          `INSERT INTO notifications (id, user_id, title, message, type, reference_id, read, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+           ON CONFLICT (id) DO UPDATE SET read = EXCLUDED.read;`,
+          [
+            notification.id,
+            notification.user_id,
+            notification.title,
+            notification.message,
+            notification.type,
+            notification.reference_id || null,
+            notification.read || false,
+            notification.created_at || new Date().toISOString()
+          ]
+        );
+      } catch (err) {
+        console.error('[PostgreSQL Error] Failed to insert notification:', err);
+      }
     }
-    db.notifications.push(notification);
-    saveDatabase(db);
 
     console.log(`[Notification] Broadcast to User: ${notification.user_id}, TargetRole: ${targetRole || 'all'}`);
 
     for (const client of sseClients) {
       let user: any = null;
-      const pool = getPgPool();
       if (pool) {
         try {
           const userRes = await pool.query('SELECT * FROM users WHERE id = $1', [client.userId]);
@@ -636,9 +548,6 @@ async function startServer() {
         } catch (err) {
           console.error('[PostgreSQL Error] failed to fetch sse user:', err);
         }
-      }
-      if (!user) {
-        user = db.users.find((u: any) => u.id === client.userId);
       }
       if (!user) continue;
 
@@ -705,48 +614,61 @@ async function startServer() {
       return res.status(400).json({ error: 'userId is required' });
     }
 
-    let user: any = null;
     const pool = getPgPool();
-    if (pool) {
-      try {
-        const userRes = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
-        if (userRes.rows.length > 0) {
-          user = userRes.rows[0];
-        }
-      } catch (err) {
-        console.error('[PostgreSQL Error] Failed to fetch user for notifications:', err);
+    if (!pool) return res.status(500).json({ error: 'Database unavailable' });
+
+    try {
+      const userRes = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
+      if (userRes.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+      const user = userRes.rows[0];
+
+      let query = '';
+      if (user.role === 'admin') {
+        query = `
+          SELECT * FROM notifications 
+          WHERE user_id = $1 OR user_id = 'admin' 
+          ORDER BY created_at DESC;
+        `;
+      } else if (user.role === 'technician') {
+        query = `
+          SELECT * FROM notifications 
+          WHERE user_id = $1 OR user_id = 'technician' 
+          ORDER BY created_at DESC;
+        `;
+      } else { // student
+        query = `
+          SELECT DISTINCT n.* FROM notifications n
+          LEFT JOIN reports r ON n.reference_id = r.id
+          WHERE n.user_id = $1
+             OR (
+                  n.reference_id IS NOT NULL 
+                  AND (r.reporter_id = $1 OR $1 = ANY(r.upvoted_by))
+                )
+          ORDER BY n.created_at DESC;
+        `;
       }
-    }
-    if (!user) {
-      user = db.users.find((u: any) => u.id === userId);
-    }
-    if (!user) return res.status(404).json({ error: 'User not found' });
 
-    if (!db.notifications) db.notifications = [];
-
-    // Filter using our robust role-based helper function
-    const filtered: Notification[] = [];
-    for (const n of db.notifications) {
-      if (await shouldUserReceiveNotification(user, n)) {
-        filtered.push(n);
-      }
+      const notifRes = await pool.query(query, [userId]);
+      res.json(notifRes.rows);
+    } catch (err) {
+      console.error('[PostgreSQL Error] Failed to fetch notifications:', err);
+      res.status(500).json({ error: 'Database query failed' });
     }
-
-    // Newest first
-    filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-    res.json(filtered);
   });
 
   // Mark specific notification as read
-  app.post('/api/notifications/:id/read', (req, res) => {
+  app.post('/api/notifications/:id/read', async (req, res) => {
     const { id } = req.params;
-    if (!db.notifications) db.notifications = [];
-    const notif = db.notifications.find((n: Notification) => n.id === id);
-    if (notif) {
-      notif.read = true;
-      saveDatabase(db);
+    const pool = getPgPool();
+    if (!pool) return res.status(500).json({ error: 'Database unavailable' });
+
+    try {
+      await pool.query('UPDATE notifications SET read = TRUE WHERE id = $1', [id]);
+      res.json({ success: true });
+    } catch (err) {
+      console.error('[PostgreSQL Error] Failed to mark notification as read:', err);
+      res.status(500).json({ error: 'Database query failed' });
     }
-    res.json({ success: true });
   });
 
   // Clear all notifications
@@ -754,36 +676,37 @@ async function startServer() {
     const { userId } = req.body;
     if (!userId) return res.status(400).json({ error: 'userId is required' });
 
-    let user: any = null;
     const pool = getPgPool();
-    if (pool) {
-      try {
-        const userRes = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
-        if (userRes.rows.length > 0) {
-          user = userRes.rows[0];
-        }
-      } catch (err) {
-        console.error('[PostgreSQL Error] Failed to fetch user for notifications clear:', err);
+    if (!pool) return res.status(500).json({ error: 'Database unavailable' });
+
+    try {
+      const userRes = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
+      if (userRes.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+      const user = userRes.rows[0];
+
+      if (user.role === 'admin') {
+        await pool.query("DELETE FROM notifications WHERE user_id = $1 OR user_id = 'admin'", [userId]);
+      } else if (user.role === 'technician') {
+        await pool.query("DELETE FROM notifications WHERE user_id = $1 OR user_id = 'technician'", [userId]);
+      } else {
+        await pool.query(`
+          DELETE FROM notifications WHERE id IN (
+            SELECT DISTINCT n.id FROM notifications n
+            LEFT JOIN reports r ON n.reference_id = r.id
+            WHERE n.user_id = $1
+               OR (
+                    n.reference_id IS NOT NULL 
+                    AND (r.reporter_id = $1 OR $1 = ANY(r.upvoted_by))
+                  )
+          );
+        `, [userId]);
       }
-    }
-    if (!user) {
-      user = db.users.find((u: any) => u.id === userId);
-    }
-    if (!user) return res.status(404).json({ error: 'User not found' });
 
-    if (!db.notifications) db.notifications = [];
-
-    // Filter out notifications that this user is eligible to receive
-    const remaining: Notification[] = [];
-    for (const n of db.notifications) {
-      if (!(await shouldUserReceiveNotification(user, n))) {
-        remaining.push(n);
-      }
+      res.json({ success: true });
+    } catch (err) {
+      console.error('[PostgreSQL Error] Failed to clear notifications:', err);
+      res.status(500).json({ error: 'Database query failed' });
     }
-    db.notifications = remaining;
-
-    saveDatabase(db);
-    res.json({ success: true });
   });
 
   // Mark all notifications as read for a specific user
@@ -791,33 +714,37 @@ async function startServer() {
     const { userId } = req.body;
     if (!userId) return res.status(400).json({ error: 'userId is required' });
 
-    let user: any = null;
     const pool = getPgPool();
-    if (pool) {
-      try {
-        const userRes = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
-        if (userRes.rows.length > 0) {
-          user = userRes.rows[0];
-        }
-      } catch (err) {
-        console.error('[PostgreSQL Error] Failed to fetch user for notifications mark read:', err);
+    if (!pool) return res.status(500).json({ error: 'Database unavailable' });
+
+    try {
+      const userRes = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
+      if (userRes.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+      const user = userRes.rows[0];
+
+      if (user.role === 'admin') {
+        await pool.query("UPDATE notifications SET read = TRUE WHERE user_id = $1 OR user_id = 'admin'", [userId]);
+      } else if (user.role === 'technician') {
+        await pool.query("UPDATE notifications SET read = TRUE WHERE user_id = $1 OR user_id = 'technician'", [userId]);
+      } else {
+        await pool.query(`
+          UPDATE notifications SET read = TRUE WHERE id IN (
+            SELECT DISTINCT n.id FROM notifications n
+            LEFT JOIN reports r ON n.reference_id = r.id
+            WHERE n.user_id = $1
+               OR (
+                    n.reference_id IS NOT NULL 
+                    AND (r.reporter_id = $1 OR $1 = ANY(r.upvoted_by))
+                  )
+          );
+        `, [userId]);
       }
-    }
-    if (!user) {
-      user = db.users.find((u: any) => u.id === userId);
-    }
-    if (!user) return res.status(404).json({ error: 'User not found' });
 
-    if (!db.notifications) db.notifications = [];
-
-    for (const n of db.notifications) {
-      if (await shouldUserReceiveNotification(user, n)) {
-        n.read = true;
-      }
+      res.json({ success: true });
+    } catch (err) {
+      console.error('[PostgreSQL Error] Failed to read-all notifications:', err);
+      res.status(500).json({ error: 'Database query failed' });
     }
-
-    saveDatabase(db);
-    res.json({ success: true });
   });
 
   // Auth Google Mock/Verify
@@ -838,93 +765,76 @@ async function startServer() {
     }
 
     // Find or create user
-    let user: User | null = null;
+    let user: any = null;
     const pool = getPgPool();
-    if (pool) {
-      try {
-        const userRes = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
-        if (userRes.rows.length > 0) {
-          user = userRes.rows[0];
+    if (!pool) return res.status(500).json({ error: 'Database unavailable' });
+
+    try {
+      const userRes = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+      if (userRes.rows.length > 0) {
+        user = userRes.rows[0];
+      } else {
+        // Determine role from email if possible, or use provided roleSelection
+        let role: 'student' | 'admin' | 'technician' = 'student';
+        if (email.includes('tech')) {
+          role = 'technician';
+        } else if (email.includes('admin') || email === 'iusman@abu.edu.ng') {
+          role = 'admin';
+        } else if (roleSelection) {
+          role = roleSelection;
         }
-      } catch (err) {
-        console.error('[PostgreSQL Error] Auth find user failed:', err);
-      }
-    }
-
-    if (!user) {
-      user = db.users.find((u: User) => u.email === email) || null;
-    }
-
-    if (!user) {
-      // Determine role from email if possible, or use provided roleSelection
-      let role: 'student' | 'admin' | 'technician' = 'student';
-      if (email.includes('tech')) {
-        role = 'technician';
-      } else if (email.includes('admin') || email === 'iusman@abu.edu.ng') {
-        role = 'admin';
-      } else if (roleSelection) {
-        role = roleSelection;
-      }
-      
-      user = {
-        id: `usr-${Date.now()}`,
-        google_id: token || `g-${Math.random().toString(36).substr(2, 9)}`,
-        name: name || email.split('@')[0],
-        email: email,
-        role: role
-      };
-      
-      db.users.push(user);
-      
-      // If technician, create technician profile
-      let techObj: Technician | null = null;
-      if (role === 'technician') {
-        techObj = {
-          id: `tech-${Date.now()}`,
-          user_id: user.id,
-          name: user.name,
-          skill_tags: ['broken_lights', 'plumbing', 'wifi_outage', 'security', 'structural', 'others'],
-          current_load: 0
+        
+        user = {
+          id: `usr-${Date.now()}`,
+          google_id: token || `g-${Math.random().toString(36).substr(2, 9)}`,
+          name: name || email.split('@')[0],
+          email: email,
+          role: role
         };
-        db.technicians.push(techObj);
-      }
 
-      if (pool) {
-        try {
+        await pool.query(
+          `INSERT INTO users (id, google_id, name, email, role) VALUES ($1, $2, $3, $4, $5)`,
+          [user.id, user.google_id, user.name, user.email, user.role]
+        );
+
+        if (role === 'technician') {
+          const techId = `tech-${Date.now()}`;
+          const skill_tags = ['broken_lights', 'plumbing', 'wifi_outage', 'security', 'structural', 'others'];
           await pool.query(
-            `INSERT INTO users (id, google_id, name, email, role) VALUES ($1, $2, $3, $4, $5)`,
-            [user.id, user.google_id, user.name, user.email, user.role]
+            `INSERT INTO technicians (id, user_id, name, skill_tags, current_load) VALUES ($1, $2, $3, $4, 0)`,
+            [techId, user.id, user.name, skill_tags]
           );
-          if (role === 'technician' && techObj) {
-            await pool.query(
-              `INSERT INTO technicians (id, user_id, name, skill_tags, current_load) VALUES ($1, $2, $3, $4, 0)`,
-              [techObj.id, techObj.user_id, techObj.name, techObj.skill_tags]
-            );
-          }
-        } catch (err) {
-          console.error('[PostgreSQL Error] Auth insert user failed:', err);
         }
       }
-      
-      saveDatabase(db);
-    }
 
-    // Send verified user session token (simple simulated session JWT)
-    res.json({
-      token: `session-jwt-${user.id}-${Date.now()}`,
-      user: user
-    });
+      res.json({
+        token: `session-jwt-${user.id}-${Date.now()}`,
+        user: user
+      });
+    } catch (err) {
+      console.error('[PostgreSQL Error] Auth find/create failed:', err);
+      res.status(500).json({ error: 'Auth failed' });
+    }
   });
 
   // Get current users / profile (helper)
-  app.get('/api/users/me', (req, res) => {
+  app.get('/api/users/me', async (req, res) => {
     const authHeader = req.headers.authorization;
     if (!authHeader) return res.status(401).json({ error: 'Unauthorized' });
     const parts = authHeader.replace('Bearer session-jwt-', '').split('-');
     const userId = parts.length > 1 ? parts.slice(0, -1).join('-') : parts[0];
-    const user = db.users.find((u: User) => u.id === userId);
-    if (!user) return res.status(404).json({ error: 'User not found' });
-    res.json(user);
+    
+    const pool = getPgPool();
+    if (!pool) return res.status(500).json({ error: 'Database unavailable' });
+
+    try {
+      const userRes = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
+      if (userRes.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+      res.json(userRes.rows[0]);
+    } catch (err) {
+      console.error('[PostgreSQL Error] Get user me failed:', err);
+      res.status(500).json({ error: 'Database query failed' });
+    }
   });
 
   // Update user role (helper for role-swapping / testing)
@@ -936,54 +846,36 @@ async function startServer() {
     const { role } = req.body;
     if (!role) return res.status(400).json({ error: 'Role is required' });
 
-    const user = db.users.find((u: User) => u.id === userId);
-    if (!user) return res.status(404).json({ error: 'User not found' });
+    const pool = getPgPool();
+    if (!pool) return res.status(500).json({ error: 'Database unavailable' });
 
-    user.role = role;
+    try {
+      const userRes = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
+      if (userRes.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+      const user = userRes.rows[0];
 
-    // Check if user is a technician and does not have a technician profile, create one
-    if (role === 'technician') {
-      const existingTech = db.technicians.find((t: Technician) => t.user_id === user.id);
-      if (!existingTech) {
-        const newTech = {
-          id: `tech-${Date.now()}`,
-          user_id: user.id,
-          name: user.name,
-          email: user.email,
-          skill_tags: ['broken_lights', 'plumbing', 'wifi_outage', 'security', 'structural', 'others'],
-          current_load: 0
-        };
-        db.technicians.push(newTech);
+      await pool.query('UPDATE users SET role = $1 WHERE id = $2', [role, userId]);
+      user.role = role;
 
-        const pool = getPgPool();
-        if (pool) {
-          try {
-            await pool.query(
-              `INSERT INTO technicians (id, user_id, name, skill_tags, current_load) 
-               VALUES ($1, $2, $3, $4, 0)
-               ON CONFLICT (id) DO NOTHING`,
-              [newTech.id, newTech.user_id, newTech.name, newTech.skill_tags]
-            );
-          } catch (err) {
-            console.error('[PostgreSQL Error] Failed to insert swapped technician:', err);
-          }
+      if (role === 'technician') {
+        const techCheck = await pool.query('SELECT * FROM technicians WHERE user_id = $1', [userId]);
+        if (techCheck.rows.length === 0) {
+          const techId = `tech-${Date.now()}`;
+          const skill_tags = ['broken_lights', 'plumbing', 'wifi_outage', 'security', 'structural', 'others'];
+          await pool.query(
+            `INSERT INTO technicians (id, user_id, name, skill_tags, current_load) 
+             VALUES ($1, $2, $3, $4, 0)
+             ON CONFLICT (id) DO NOTHING`,
+            [techId, userId, user.name, skill_tags]
+          );
         }
       }
+
+      res.json({ success: true, user });
+    } catch (err) {
+      console.error('[PostgreSQL Error] Failed to update user role:', err);
+      res.status(500).json({ error: 'Database query failed' });
     }
-
-    saveDatabase(db);
-
-    // Also sync to PostgreSQL if pool is active
-    const pool = getPgPool();
-    if (pool) {
-      try {
-        await pool.query('UPDATE users SET role = $1 WHERE id = $2', [role, userId]);
-      } catch (err) {
-        console.error('[PostgreSQL Error] Failed to update user role:', err);
-      }
-    }
-
-    res.json({ success: true, user });
   });
 
   // Get all reports
@@ -991,96 +883,55 @@ async function startServer() {
     const { category, status, zone_id, query } = req.query;
 
     const pool = getPgPool();
-    if (pool) {
-      try {
-        console.log('[PostgreSQL] Querying reports directly from DB...');
-        let sql = `
-          SELECT r.*, 
-            (SELECT COUNT(*)::int FROM comments WHERE report_id = r.id) as comments_count
-          FROM reports r
-          WHERE 1=1
-        `;
-        const params: any[] = [];
-        
-        if (category && category !== 'all') {
-          params.push(category);
-          sql += ` AND r.category = $${params.length}`;
-        }
-        if (status && status !== 'all') {
-          params.push(status);
-          sql += ` AND r.status = $${params.length}`;
-        }
-        if (zone_id && zone_id !== 'all') {
-          params.push(zone_id);
-          sql += ` AND r.zone_id = $${params.length}`;
-        }
-        if (query) {
-          params.push(`%${query}%`);
-          sql += ` AND (LOWER(r.description) LIKE $${params.length} OR LOWER(r.reporter_name) LIKE $${params.length})`;
-        }
-        
-        sql += ` ORDER BY r.created_at DESC`;
-        
-        const result = await pool.query(sql, params);
-        
-        // Calculate gemma_rank_score for compatibility
-        const reports = result.rows.map(r => {
-          const priority_score = r.priority_score || 3;
-          const upvotes = r.upvotes || 0;
-          const commentsCount = r.comments_count || 0;
-          const gemmaScore = (priority_score * 15) + (upvotes * 5) + (commentsCount * 3);
-          return {
-            ...r,
-            gemma_rank_score: gemmaScore
-          };
-        });
-        
-        return res.json(reports);
-      } catch (err) {
-        console.error('[PostgreSQL Error] Failed to fetch reports, falling back to local DB:', err);
+    if (!pool) return res.status(500).json({ error: 'Database unavailable' });
+
+    try {
+      console.log('[PostgreSQL] Querying reports directly from DB...');
+      let sql = `
+        SELECT r.*, 
+          (SELECT COUNT(*)::int FROM comments WHERE report_id = r.id) as comments_count
+        FROM reports r
+        WHERE 1=1
+      `;
+      const params: any[] = [];
+      
+      if (category && category !== 'all') {
+        params.push(category);
+        sql += ` AND r.category = $${params.length}`;
       }
-    }
-    
-    // Create map for fast comments count lookup
-    const commentsCountMap: Record<string, number> = {};
-    if (db.comments) {
-      db.comments.forEach((c: any) => {
-        commentsCountMap[c.report_id] = (commentsCountMap[c.report_id] || 0) + 1;
+      if (status && status !== 'all') {
+        params.push(status);
+        sql += ` AND r.status = $${params.length}`;
+      }
+      if (zone_id && zone_id !== 'all') {
+        params.push(zone_id);
+        sql += ` AND r.zone_id = $${params.length}`;
+      }
+      if (query) {
+        params.push(`%${query}%`);
+        sql += ` AND (LOWER(r.description) LIKE $${params.length} OR LOWER(r.reporter_name) LIKE $${params.length})`;
+      }
+      
+      sql += ` ORDER BY r.created_at DESC`;
+      
+      const result = await pool.query(sql, params);
+      
+      const reports = result.rows.map(r => {
+        const priority_score = r.priority_score || 3;
+        const upvotes = r.upvotes || 0;
+        const commentsCount = r.comments_count || 0;
+        const gemmaScore = (priority_score * 15) + (upvotes * 5) + (commentsCount * 3);
+        return {
+          ...r,
+          gemma_rank_score: gemmaScore
+        };
       });
+      
+      res.json(reports);
+    } catch (err) {
+      console.error('[PostgreSQL Error] Failed to fetch reports:', err);
+      res.status(500).json({ error: 'Database query failed' });
     }
-
-    let filtered = db.reports.map((r: Report) => {
-      const commentsCount = commentsCountMap[r.id] || 0;
-      // Urgency is priority_score (1-5), Engagement is upvotes, complaints is comments_count
-      const gemmaScore = (r.priority_score * 15) + (r.upvotes * 5) + (commentsCount * 3);
-      return {
-        ...r,
-        comments_count: commentsCount,
-        gemma_rank_score: gemmaScore
-      };
-    });
-
-    if (category && category !== 'all') {
-      filtered = filtered.filter(r => r.category === category);
-    }
-    if (status && status !== 'all') {
-      filtered = filtered.filter(r => r.status === status);
-    }
-    if (zone_id && zone_id !== 'all') {
-      filtered = filtered.filter(r => r.zone_id === zone_id);
-    }
-    if (query) {
-      const q = (query as string).toLowerCase();
-      filtered = filtered.filter(r => 
-        r.description.toLowerCase().includes(q) || 
-        (r.reporter_name && r.reporter_name.toLowerCase().includes(q))
-      );
-    }
-
-    // Sort by most upvoted and newest
-    filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-
-    res.json(filtered);
   });
 
   // Helper to transcribe/interpret base64 audio to English via Gemma 4
@@ -1124,24 +975,28 @@ async function startServer() {
       return res.status(400).json({ error: 'Missing required report fields (requires description or voice recording)' });
     }
 
-    let voice_interpretation = '';
-    if (voice_url) {
-      voice_interpretation = 'Voice report received. AI transcription is currently disabled (voice not supported by the 31B model). Please play the audio recording directly.';
-      if (!description) {
-        description = 'Voice report received. Play recording for details.';
-      }
-    }
-
-    const reporter = db.users.find((u: User) => u.id === reporter_id);
-    const parsedLat = parseFloat(lat);
-    const parsedLng = parseFloat(lng);
-
-    // PostGIS containment-based zone mapping to prevent spoofing
-    let final_zone_id = zone_id || 'zone-other';
-    let final_zone_name = zone_name || 'ABU Campus';
-
     const pool = getPgPool();
-    if (pool) {
+    if (!pool) return res.status(500).json({ error: 'Database unavailable' });
+
+    try {
+      let voice_interpretation = '';
+      if (voice_url) {
+        voice_interpretation = 'Voice report received. AI transcription is currently disabled (voice not supported by the 31B model). Please play the audio recording directly.';
+        if (!description) {
+          description = 'Voice report received. Play recording for details.';
+        }
+      }
+
+      const reporterRes = await pool.query('SELECT * FROM users WHERE id = $1', [reporter_id]);
+      const reporter = reporterRes.rows[0];
+
+      const parsedLat = parseFloat(lat);
+      const parsedLng = parseFloat(lng);
+
+      // PostGIS containment-based zone mapping to prevent spoofing
+      let final_zone_id = zone_id || 'zone-other';
+      let final_zone_name = zone_name || 'ABU Campus';
+
       try {
         console.log(`[PostgreSQL PostGIS] Finding containing zone for coordinates: (${parsedLng}, ${parsedLat})`);
         const containingZoneRes = await pool.query(
@@ -1164,7 +1019,7 @@ async function startServer() {
         if (final_zone_id) {
           const zoneCheckRes = await pool.query('SELECT 1 FROM zones WHERE id = $1 LIMIT 1;', [final_zone_id]);
           if (zoneCheckRes.rows.length === 0) {
-            console.log(`[PostgreSQL] Zone ID '${final_zone_id}' does not exist in 'zones' table. Falling back to satisfy foreign key.`);
+            console.log(`[PostgreSQL] Zone ID '${final_zone_id}' does not exist. Falling back to satisfy foreign key.`);
             const zoneOtherCheck = await pool.query("SELECT 1 FROM zones WHERE id = 'zone-other' LIMIT 1;");
             if (zoneOtherCheck.rows.length > 0) {
               final_zone_id = 'zone-other';
@@ -1174,7 +1029,7 @@ async function startServer() {
                 final_zone_id = anyZoneRes.rows[0].id;
                 final_zone_name = anyZoneRes.rows[0].name;
               } else {
-                final_zone_id = null; // Setting to null prevents foreign key constraint violation perfectly!
+                final_zone_id = null;
               }
             }
           }
@@ -1182,30 +1037,29 @@ async function startServer() {
       } catch (err) {
         console.error('[PostgreSQL PostGIS Error] Zone containment check failed:', err);
       }
-    }
 
-    zone_id = final_zone_id;
-    zone_name = final_zone_name;
+      zone_id = final_zone_id;
+      zone_name = final_zone_name;
 
-    // Default Values
-    let category = 'others';
-    let severity: 'low' | 'medium' | 'high' | 'urgent' = 'medium';
-    let location_hint = '';
-    let sentiment = 'neutral';
-    let priority_score = 3;
-    let triageAnalysis = '';
-    let isAiProcessed = false;
+      // Default Values
+      let category = 'others';
+      let severity: 'low' | 'medium' | 'high' | 'urgent' = 'medium';
+      let location_hint = '';
+      let sentiment = 'neutral';
+      let priority_score = 3;
+      let triageAnalysis = '';
+      let isAiProcessed = false;
 
-    // Feature 1: AI-mediated intake (extract structured fields from free text description and proof photo)
-    if (photo_url) {
-      try {
-        console.log('[Gemma 4 Multimodal Intake] Processing description and proof photo...');
-        const matches = photo_url.match(/^data:([^;]+);base64,(.+)$/);
-        if (matches) {
-          const mimeType = matches[1];
-          const base64Data = matches[2];
+      // Feature 1: AI-mediated intake
+      if (photo_url) {
+        try {
+          console.log('[Gemma 4 Multimodal Intake] Processing description and proof photo...');
+          const matches = photo_url.match(/^data:([^;]+);base64,(.+)$/);
+          if (matches) {
+            const mimeType = matches[1];
+            const base64Data = matches[2];
 
-          const prompt = `Analyze the user's free-text maintenance report and extract the following fields, taking the attached proof photo into consideration for accuracy of severity, category, and location cues:
+            const prompt = `Analyze the user's free-text maintenance report and extract the following fields, taking the attached proof photo into consideration for accuracy of severity, category, and location cues:
 Report Description: "${description}"
 
 Schema instructions:
@@ -1222,13 +1076,58 @@ Return ONLY a strict JSON object matching this schema, without any markdown form
   "sentiment": "frustrated" | "neutral" | "calm" | "angry"
 }`;
 
-          const systemInstruction = `You are the Gemma 4 campus maintenance intake engine for Ahmadu Bello University, Zaria. Use the attached photo and text to return a strict JSON object matching the requested schema.`;
+            const systemInstruction = `You are the Gemma 4 campus maintenance intake engine for Ahmadu Bello University, Zaria. Use the attached photo and text to return a strict JSON object matching the requested schema.`;
+
+            const aiResponse = await callGemmaAI(
+              prompt,
+              systemInstruction,
+              true,
+              { mimeType, data: base64Data }
+            );
+
+            let jsonStr = aiResponse.trim();
+            if (jsonStr.includes('```')) {
+              const matches = jsonStr.match(/```(?:json)?([\s\S]*?)```/);
+              if (matches && matches[1]) {
+                jsonStr = matches[1].trim();
+              }
+            }
+
+            const aiData = JSON.parse(jsonStr);
+            category = aiData.category || 'others';
+            severity = aiData.severity || 'medium';
+            location_hint = aiData.location_hint || '';
+            sentiment = aiData.sentiment || 'neutral';
+            isAiProcessed = true;
+            triageAnalysis = `[Multimodal Intake] Extracted category: ${category}, severity: ${severity}, location: "${location_hint}", sentiment: ${sentiment}.`;
+          }
+        } catch (err) {
+          console.error('[Gemma Multimodal Intake Error] Multimodal AI parse failed, falling back to text-only:', err);
+        }
+      }
+
+      if (!isAiProcessed) {
+        try {
+          console.log('[Gemma 4 Intake] Processing free-text description for structured intake extraction...');
+          const systemInstruction = `You are the Gemma 4 campus maintenance intake engine for Ahmadu Bello University, Zaria.
+Analyze the user's free-text maintenance report and extract the following fields:
+- category: MUST be one of: "broken_lights", "plumbing", "wifi_outage", "security", "structural", or "others".
+- severity: MUST be one of: "low", "medium", "high", or "urgent".
+- location_hint: Extract any specific location indicators (e.g. "near hostel gate", "Suleiman hall Block C"). Max 50 characters.
+- sentiment: MUST be one of: "frustrated", "neutral", "calm", or "angry".
+
+Return ONLY a strict JSON object matching this schema, without any markdown formatting or block quotes:
+{
+  "category": "broken_lights" | "plumbing" | "wifi_outage" | "security" | "structural" | "others",
+  "severity": "low" | "medium" | "high" | "urgent",
+  "location_hint": "string",
+  "sentiment": "frustrated" | "neutral" | "calm" | "angry"
+}`;
 
           const aiResponse = await callGemmaAI(
-            prompt,
+            `Report Description: "${description}"`,
             systemInstruction,
-            true,
-            { mimeType, data: base64Data }
+            true
           );
 
           let jsonStr = aiResponse.trim();
@@ -1245,88 +1144,38 @@ Return ONLY a strict JSON object matching this schema, without any markdown form
           location_hint = aiData.location_hint || '';
           sentiment = aiData.sentiment || 'neutral';
           isAiProcessed = true;
-          triageAnalysis = `[Multimodal Intake] Extracted category: ${category}, severity: ${severity}, location: "${location_hint}", sentiment: ${sentiment}.`;
-        }
-      } catch (err) {
-        console.error('[Gemma Multimodal Intake Error] Multimodal AI parse failed, falling back to text-only:', err);
-      }
-    }
-
-    if (!isAiProcessed) {
-      try {
-        console.log('[Gemma 4 Intake] Processing free-text description for structured intake extraction...');
-        const systemInstruction = `You are the Gemma 4 campus maintenance intake engine for Ahmadu Bello University, Zaria.
-Analyze the user's free-text maintenance report and extract the following fields:
-- category: MUST be one of: "broken_lights", "plumbing", "wifi_outage", "security", "structural", or "others".
-- severity: MUST be one of: "low", "medium", "high", or "urgent".
-- location_hint: Extract any specific location indicators (e.g. "near hostel gate", "Suleiman hall Block C"). Max 50 characters.
-- sentiment: MUST be one of: "frustrated", "neutral", "calm", or "angry".
-
-Return ONLY a strict JSON object matching this schema, without any markdown formatting or block quotes:
-{
-  "category": "broken_lights" | "plumbing" | "wifi_outage" | "security" | "structural" | "others",
-  "severity": "low" | "medium" | "high" | "urgent",
-  "location_hint": "string",
-  "sentiment": "frustrated" | "neutral" | "calm" | "angry"
-}`;
-
-        const aiResponse = await callGemmaAI(
-          `Report Description: "${description}"`,
-          systemInstruction,
-          true
-        );
-
-        // Extract JSON content from potential markdown wrapper
-        let jsonStr = aiResponse.trim();
-        if (jsonStr.includes('```')) {
-          const matches = jsonStr.match(/```(?:json)?([\s\S]*?)```/);
-          if (matches && matches[1]) {
-            jsonStr = matches[1].trim();
+          triageAnalysis = `Extracted category: ${category}, severity: ${severity}, location: "${location_hint}", sentiment: ${sentiment}.`;
+        } catch (err) {
+          console.error('[Gemma Intake Error] AI parse failed. Falling back to local rule-based extractor:', err);
+          const descLower = description.toLowerCase();
+          if (descLower.includes('light') || descLower.includes('dark') || descLower.includes('bulb') || descLower.includes('electric') || descLower.includes('lamp')) {
+            category = 'broken_lights';
+            severity = 'medium';
+          } else if (descLower.includes('pipe') || descLower.includes('water') || descLower.includes('leak') || descLower.includes('plumb') || descLower.includes('toilet') || descLower.includes('borehole')) {
+            category = 'plumbing';
+            severity = 'high';
+            sentiment = 'frustrated';
+          } else if (descLower.includes('wifi') || descLower.includes('internet') || descLower.includes('network') || descLower.includes('connection')) {
+            category = 'wifi_outage';
+            severity = 'low';
+          } else if (descLower.includes('safety') || descLower.includes('security') || descLower.includes('danger') || descLower.includes('threat') || descLower.includes('rob') || descLower.includes('thief')) {
+            category = 'security';
+            severity = 'urgent';
+            sentiment = 'angry';
+          } else if (descLower.includes('wall') || descLower.includes('roof') || descLower.includes('broken') || descLower.includes('crack') || descLower.includes('structural')) {
+            category = 'structural';
+            severity = 'medium';
           }
+          location_hint = 'Detected near ' + (zone_name || 'ABU Campus');
+          triageAnalysis = `[Heuristic Fallback] Category: ${category}, severity: ${severity} (AI was unreachable).`;
         }
-
-        const aiData = JSON.parse(jsonStr);
-        category = aiData.category || 'others';
-        severity = aiData.severity || 'medium';
-        location_hint = aiData.location_hint || '';
-        sentiment = aiData.sentiment || 'neutral';
-        isAiProcessed = true;
-        triageAnalysis = `Extracted category: ${category}, severity: ${severity}, location: "${location_hint}", sentiment: ${sentiment}.`;
-      } catch (err) {
-        console.error('[Gemma Intake Error] AI parse failed. Falling back to local rule-based extractor:', err);
-        // Fallback simple rule-based classifier if AI fails (offline-first requirement)
-        const descLower = description.toLowerCase();
-        if (descLower.includes('light') || descLower.includes('dark') || descLower.includes('bulb') || descLower.includes('electric') || descLower.includes('lamp')) {
-          category = 'broken_lights';
-          severity = 'medium';
-        } else if (descLower.includes('pipe') || descLower.includes('water') || descLower.includes('leak') || descLower.includes('plumb') || descLower.includes('toilet') || descLower.includes('borehole')) {
-          category = 'plumbing';
-          severity = 'high';
-          sentiment = 'frustrated';
-        } else if (descLower.includes('wifi') || descLower.includes('internet') || descLower.includes('network') || descLower.includes('connection')) {
-          category = 'wifi_outage';
-          severity = 'low';
-        } else if (descLower.includes('safety') || descLower.includes('security') || descLower.includes('danger') || descLower.includes('threat') || descLower.includes('rob') || descLower.includes('thief')) {
-          category = 'security';
-          severity = 'urgent';
-          sentiment = 'angry';
-        } else if (descLower.includes('wall') || descLower.includes('roof') || descLower.includes('broken') || descLower.includes('crack') || descLower.includes('structural')) {
-          category = 'structural';
-          severity = 'medium';
-        }
-        location_hint = 'Detected near ' + (zone_name || 'ABU Campus');
-        triageAnalysis = `[Heuristic Fallback] Category: ${category}, severity: ${severity} (AI was unreachable).`;
       }
-    }
 
-    // Map severity to priority_score
-    const severityMap = { low: 2, medium: 3, high: 4, urgent: 5 };
-    priority_score = severityMap[severity] || 3;
+      const severityMap = { low: 2, medium: 3, high: 4, urgent: 5 };
+      priority_score = severityMap[severity] || 3;
 
-    // Feature 2: Duplicate detection & clustering
-    // 1. Filter reports within 100 meters using PostGIS ST_DWithin geography or local Haversine
-    let nearbyReports: any[] = [];
-    if (pool) {
+      // Feature 2: Duplicate detection & clustering
+      let nearbyReports: any[] = [];
       try {
         console.log(`[PostgreSQL PostGIS] Finding duplicates within 100 meters using ST_DWithin...`);
         const nearbyRes = await pool.query(
@@ -1338,26 +1187,17 @@ Return ONLY a strict JSON object matching this schema, without any markdown form
         );
         nearbyReports = nearbyRes.rows;
       } catch (err) {
-        console.error('[PostgreSQL PostGIS Error] ST_DWithin duplicate check failed, using memory fallback:', err);
+        console.error('[PostgreSQL PostGIS Error] ST_DWithin duplicate check failed:', err);
       }
-    }
 
-    if (nearbyReports.length === 0 && !pool) {
-      nearbyReports = db.reports.filter((r: Report) => {
-        if (r.status === 'resolved') return false;
-        const distance = getDistanceInMeters(parsedLat, parsedLng, r.lat, r.lng);
-        return distance <= 100;
-      });
-    }
+      let duplicateDetected = false;
+      let duplicateReportId: string | null = null;
+      let clusterReason = '';
 
-    let duplicateDetected = false;
-    let duplicateReportId: string | null = null;
-    let clusterReason = '';
-
-    if (nearbyReports.length > 0) {
-      try {
-        console.log(`[Gemma Clustering] Evaluating ${nearbyReports.length} nearby open reports for semantic duplicate detection...`);
-        const systemInstruction = `You are Gemma 4's deduplication engine. 
+      if (nearbyReports.length > 0) {
+        try {
+          console.log(`[Gemma Clustering] Evaluating ${nearbyReports.length} nearby open reports for semantic duplicate detection...`);
+          const systemInstruction = `You are Gemma 4's deduplication engine. 
 Compare this new campus maintenance report description with nearby existing open reports.
 Determine if the new report is a DUPLICATE describing the exact same issue in the exact same location.
 
@@ -1372,294 +1212,162 @@ Output your decision as a strict JSON object (no markdown, no quotes, just raw J
   "duplicate_report_id": string or null,
   "confidence_score": number
 }`;
-        const aiResponse = await callGemmaAI(
-          `Determine duplicate matching.`,
-          systemInstruction,
-          true
-        );
+          const aiResponse = await callGemmaAI(
+            `Determine duplicate matching.`,
+            systemInstruction,
+            true
+          );
 
-        let jsonStr = aiResponse.trim();
-        if (jsonStr.includes('```')) {
-          const matches = jsonStr.match(/```(?:json)?([\s\S]*?)```/);
-          if (matches && matches[1]) {
-            jsonStr = matches[1].trim();
+          let jsonStr = aiResponse.trim();
+          if (jsonStr.includes('```')) {
+            const matches = jsonStr.match(/```(?:json)?([\s\S]*?)```/);
+            if (matches && matches[1]) {
+              jsonStr = matches[1].trim();
+            }
           }
-        }
 
-        const aiData = JSON.parse(jsonStr);
-        if (aiData.is_duplicate && aiData.duplicate_report_id) {
-          // Confirm the ID is indeed in the nearby list
-          const existsInNearby = nearbyReports.some((r: any) => r.id === aiData.duplicate_report_id);
-          if (existsInNearby) {
-            duplicateDetected = true;
-            duplicateReportId = aiData.duplicate_report_id;
-            clusterReason = `Gemma 4 clustering matched this report to existing ticket #${duplicateReportId} (confidence: ${aiData.confidence_score || 0.9}).`;
+          const aiData = JSON.parse(jsonStr);
+          if (aiData.is_duplicate && aiData.duplicate_report_id) {
+            const existsInNearby = nearbyReports.some((r: any) => r.id === aiData.duplicate_report_id);
+            if (existsInNearby) {
+              duplicateDetected = true;
+              duplicateReportId = aiData.duplicate_report_id;
+              clusterReason = `Gemma 4 clustering matched this report to existing ticket #${duplicateReportId} (confidence: ${aiData.confidence_score || 0.9}).`;
+            }
           }
-        }
-      } catch (err) {
-        console.error('[Gemma Deduplication Error] AI deduplication failed. Falling back to Jaccard similarity:', err);
-        // Fallback Jaccard Similarity (Jaccard similarity > 0.35 is classified as duplicate)
-        for (const nr of nearbyReports) {
-          const score = getJaccardSimilarity(description, nr.description);
-          console.log(`[Local Deduplication] Jaccard word-overlap score with report ${nr.id}: ${score.toFixed(3)}`);
-          if (score >= 0.35) {
-            duplicateDetected = true;
-            duplicateReportId = nr.id;
-            clusterReason = `Offline local Jaccard overlap check matched this report to ticket #${nr.id} with word-similarity score ${score.toFixed(2)}.`;
-            break;
+        } catch (err) {
+          console.error('[Gemma Deduplication Error] AI deduplication failed. Falling back to Jaccard similarity:', err);
+          for (const nr of nearbyReports) {
+            const score = getJaccardSimilarity(description, nr.description);
+            if (score >= 0.35) {
+              duplicateDetected = true;
+              duplicateReportId = nr.id;
+              clusterReason = `Offline local Jaccard overlap check matched this report to ticket #${nr.id} with word-similarity score ${score.toFixed(2)}.`;
+              break;
+            }
           }
         }
       }
-    }
 
-    if (duplicateDetected && duplicateReportId) {
-      console.log(`[Gemma Clustering] Duplicate detected! Merging report into original #${duplicateReportId}`);
-      const originalReport = db.reports.find((r: Report) => r.id === duplicateReportId);
-      if (originalReport) {
-        // Increment report_count
-        originalReport.report_count = (originalReport.report_count || 1) + 1;
+      if (duplicateDetected && duplicateReportId) {
+        console.log(`[Gemma Clustering] Duplicate detected! Merging report into original #${duplicateReportId}`);
         
-        // Auto-add upvote for the new reporter to show increased community weight/urgency
-        if (!originalReport.upvoted_by.includes(reporter_id)) {
-          originalReport.upvoted_by.push(reporter_id);
-          originalReport.upvotes = (originalReport.upvotes || 0) + 1;
-        }
+        await pool.query(
+          `UPDATE reports 
+           SET report_count = report_count + 1, 
+               upvotes = CASE WHEN NOT ($1 = ANY(upvoted_by)) THEN upvotes + 1 ELSE upvotes END,
+               upvoted_by = array_append(upvoted_by, $1)
+           WHERE id = $2;`,
+          [reporter_id, duplicateReportId]
+        );
 
-        // Add a log comment to the original report about the cluster event
-        db.comments.push({
-          id: `cmt-${Date.now()}-cluster`,
-          report_id: originalReport.id,
-          user_id: 'usr-admin-1',
-          user_name: 'Gemma 4 AI Clustering',
-          user_role: 'admin',
-          text: `⚠️ Duplicate Merged: Sani Bello's report was clustered here. "${description.substring(0, 100)}..."\nReason: ${clusterReason}\nTotal Clustered Tickets: ${originalReport.report_count}`,
-          created_at: new Date().toISOString()
-        });
+        const commentId = `cmt-${Date.now()}-cluster`;
+        const clusterCommentText = `⚠️ Duplicate Merged: Sani Bello's report was clustered here. "${description.substring(0, 100)}..."\nReason: ${clusterReason}`;
+        await pool.query(
+          `INSERT INTO comments (id, report_id, user_id, user_name, user_role, text)
+           VALUES ($1, $2, $3, $4, $5, $6);`,
+          [commentId, duplicateReportId, 'usr-admin-1', 'Gemma 4 AI Clustering', 'admin', clusterCommentText]
+        );
 
-        // Add a notification for the student reporting it to explain it was merged
-        sendLiveNotification({
+        await sendLiveNotification({
           id: `notif-${Date.now()}-merge`,
           user_id: reporter_id,
           title: '🔄 Report Clustered with Active Ticket',
-          message: `Your report has been identified as a duplicate of an existing active ticket. We have merged your report into ticket #${originalReport.id} and added your vote!`,
+          message: `Your report has been identified as a duplicate of an existing active ticket. We have merged your report into ticket #${duplicateReportId} and added your vote!`,
           type: 'status_change',
-          reference_id: originalReport.id,
+          reference_id: duplicateReportId,
           read: false,
           created_at: new Date().toISOString()
         });
 
-        // Sync with PostgreSQL
-        if (pool) {
-          try {
-            await pool.query(
-              `UPDATE reports 
-               SET report_count = report_count + 1, 
-                   upvotes = CASE WHEN NOT ($1 = ANY(upvoted_by)) THEN upvotes + 1 ELSE upvotes END,
-                   upvoted_by = array_append(upvoted_by, $1)
-               WHERE id = $2;`,
-              [reporter_id, originalReport.id]
-            );
-
-            // Insert comment
-            await pool.query(
-              `INSERT INTO comments (id, report_id, user_id, user_name, user_role, text)
-               VALUES ($1, $2, $3, $4, $5, $6);`,
-              [
-                `cmt-${Date.now()}-cluster`,
-                originalReport.id,
-                'usr-admin-1',
-                'Gemma 4 AI Clustering',
-                'admin',
-                `⚠️ Duplicate Merged: Sani Bello's report was clustered here. "${description.substring(0, 100)}..."\nReason: ${clusterReason}\nTotal Clustered Tickets: ${originalReport.report_count}`
-              ]
-            );
-
-            // Insert notification
-            await pool.query(
-              `INSERT INTO notifications (id, user_id, title, message, type, reference_id)
-               VALUES ($1, $2, $3, $4, $5, $6);`,
-              [
-                `notif-${Date.now()}-merge`,
-                reporter_id,
-                '🔄 Report Clustered with Active Ticket',
-                `Your report has been identified as a duplicate of an existing active ticket. We have merged your report into ticket #${originalReport.id} and added your vote!`,
-                'status_change',
-                originalReport.id
-              ]
-            );
-          } catch (err) {
-            console.error('[PostgreSQL Error] Failed to update merged report:', err);
-          }
-        }
-
-        saveDatabase(db);
-        // Return duplicate merge flag to the frontend
+        const updatedReportRes = await pool.query('SELECT * FROM reports WHERE id = $1', [duplicateReportId]);
         return res.status(200).json({ 
           success: true, 
           merged: true, 
-          report: originalReport, 
+          report: updatedReportRes.rows[0], 
           message: 'Your report was successfully merged into an existing active issue at this location.' 
         });
       }
-    }
 
-    // Create fresh report
-    const newReport: Report = {
-      id: `rep-${Date.now()}`,
-      reporter_id,
-      reporter_name: is_anonymous ? 'Anonymous' : (reporter?.name || 'ABU Student'),
-      category,
-      description,
-      photo_url,
-      lat: parsedLat,
-      lng: parsedLng,
-      zone_id: zone_id || 'zone-other',
-      zone_name: zone_name || 'ABU Campus',
-      status: 'submitted',
-      priority_score,
-      is_anonymous: !!is_anonymous,
-      upvotes: 0,
-      upvoted_by: [],
-      created_at: new Date().toISOString(),
-      severity,
-      location_hint,
-      sentiment,
-      report_count: 1,
-      voice_url: voice_url || undefined,
-      voice_interpretation: voice_interpretation || undefined
-    };
+      // Create fresh report
+      const newReportId = `rep-${Date.now()}`;
+      const reporterName = is_anonymous ? 'Anonymous' : (reporter?.name || 'ABU Student');
 
-    db.reports.push(newReport);
+      await pool.query(`
+        INSERT INTO reports (
+          id, reporter_id, reporter_name, category, description, lat, lng, geom,
+          zone_id, zone_name, is_anonymous, status, priority_score, severity,
+          location_hint, sentiment, triage_analysis, photo_url, voice_url, voice_interpretation,
+          upvotes, report_count, upvoted_by
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, ST_SetSRID(ST_MakePoint($7, $6), 4326),
+          $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, 0, 1, '{}'
+        );`,
+        [
+          newReportId, reporter_id, reporterName, category, description,
+          parsedLat, parsedLng, zone_id || 'zone-other', zone_name || 'ABU Campus', !!is_anonymous,
+          'submitted', priority_score, severity, location_hint,
+          sentiment, triageAnalysis, photo_url || null, voice_url || null,
+          voice_interpretation || null
+        ]
+      );
 
-    // Write an elegant triage comment on the ticket
-    db.comments.push({
-      id: `cmt-${Date.now()}-triage`,
-      report_id: newReport.id,
-      user_id: 'usr-admin-1',
-      user_name: 'Gemma 4 AI Triage',
-      user_role: 'admin',
-      text: `⚡ Gemma 4 AI Intake Analysis:\n• Category: ${category.replace('_', ' ').toUpperCase()}\n• Priority Score: ${priority_score}/5 (${severity.toUpperCase()})\n• Sentiment/Frustration: ${sentiment.toUpperCase()}\n• Location Hint: "${location_hint || 'None'}"\n• Status: AI-Categorized & Validated.`,
-      created_at: new Date().toISOString()
-    });
+      const triageCommentId = `cmt-${Date.now()}-triage`;
+      const triageCommentText = `⚡ Gemma 4 AI Intake Analysis:\n• Category: ${category.replace('_', ' ').toUpperCase()}\n• Priority Score: ${priority_score}/5 (${severity.toUpperCase()})\n• Sentiment/Frustration: ${sentiment.toUpperCase()}\n• Location Hint: "${location_hint || 'None'}"\n• Status: AI-Categorized & Validated.`;
+      
+      await pool.query(`
+        INSERT INTO comments (id, report_id, user_id, user_name, user_role, text)
+        VALUES ($1, $2, $3, $4, $5, $6);`,
+        [triageCommentId, newReportId, 'usr-admin-1', 'Gemma 4 AI Triage', 'admin', triageCommentText]
+      );
 
-    // Trigger Real-Time Notification Broadcast
-    const notifMessage = `New ${category.replace('_', ' ')} ticket logged at ${newReport.zone_name}. "${description.substring(0, 60)}..."`;
-    const notifTitle = priority_score >= 4 ? '🚨 High Priority Maintenance Alert' : '📋 New Maintenance Ticket';
+      const notifMessage = `New ${category.replace('_', ' ')} ticket logged at ${zone_name}. "${description.substring(0, 60)}..."`;
+      const notifTitle = priority_score >= 4 ? '🚨 High Priority Maintenance Alert' : '📋 New Maintenance Ticket';
 
-    // Sync with PostgreSQL
-    if (pool) {
-      try {
-        console.log('[PostgreSQL] Inserting fresh report and AI triage comment...');
-        await pool.query(`
-          INSERT INTO reports (
-            id, reporter_id, reporter_name, category, description, lat, lng, geom,
-            zone_id, zone_name, is_anonymous, status, priority_score, severity,
-            location_hint, sentiment, triage_analysis, photo_url, voice_url, voice_interpretation,
-            upvotes, report_count, upvoted_by
-          ) VALUES (
-            $1, $2, $3, $4, $5, $6, $7, ST_SetSRID(ST_MakePoint($7, $6), 4326),
-            $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22
-          );`,
-          [
-            newReport.id, newReport.reporter_id, newReport.reporter_name, newReport.category, newReport.description,
-            newReport.lat, newReport.lng, newReport.zone_id, newReport.zone_name, newReport.is_anonymous,
-            newReport.status, newReport.priority_score, newReport.severity, newReport.location_hint,
-            newReport.sentiment, triageAnalysis, newReport.photo_url || null, newReport.voice_url || null,
-            newReport.voice_interpretation || null, 0, 1, []
-          ]
-        );
-        
-        // Also insert the triage comment
-        await pool.query(`
-          INSERT INTO comments (id, report_id, user_id, user_name, user_role, text)
-          VALUES ($1, $2, $3, $4, $5, $6);`,
-          [
-            `cmt-${Date.now()}-triage`,
-            newReport.id,
-            'usr-admin-1',
-            'Gemma 4 AI Triage',
-            'admin',
-            `⚡ Gemma 4 AI Intake Analysis:\n• Category: ${category.replace('_', ' ').toUpperCase()}\n• Priority Score: ${priority_score}/5 (${severity.toUpperCase()})\n• Sentiment/Frustration: ${sentiment.toUpperCase()}\n• Location Hint: "${location_hint || 'None'}"\n• Status: AI-Categorized & Validated.`
-          ]
-        );
-
-        // Also insert administrator notification
-        await pool.query(`
-          INSERT INTO notifications (id, user_id, title, message, type, reference_id)
-          VALUES ($1, $2, $3, $4, $5, $6);`,
-          [
-            `notif-${Date.now()}-fresh-admin`,
-            'admin',
-            notifTitle,
-            notifMessage,
-            priority_score >= 4 ? 'high_priority' : 'status_change',
-            newReport.id
-          ]
-        );
-
-        // Also insert technician notification if high priority
-        if (priority_score >= 4) {
-          await pool.query(`
-            INSERT INTO notifications (id, user_id, title, message, type, reference_id)
-            VALUES ($1, $2, $3, $4, $5, $6);`,
-            [
-              `notif-${Date.now()}-fresh-tech`,
-              'technician',
-              notifTitle,
-              notifMessage,
-              'high_priority',
-              newReport.id
-            ]
-          );
-        }
-      } catch (err) {
-        console.error('[PostgreSQL Error] Failed to insert new report in DB:', err);
-      }
-    }
-
-    saveDatabase(db);
-    
-    // Send to Admins
-    sendLiveNotification({
-      id: `notif-${Date.now()}`,
-      user_id: 'admin',
-      title: notifTitle,
-      message: notifMessage,
-      type: priority_score >= 4 ? 'high_priority' : 'status_change',
-      reference_id: newReport.id,
-      read: false,
-      created_at: new Date().toISOString()
-    }, 'admin');
-
-    // Also notify the reporting Student (direct role-based routing)
-    if (reporter_id) {
-      sendLiveNotification({
-        id: `notif-${Date.now()}-student-submit`,
-        user_id: reporter_id,
-        title: '📝 Report Successfully Logged',
-        message: `Your report for "${category.replace('_', ' ').toUpperCase()}" has been received and is currently under administrative review.`,
-        type: 'status_change',
-        reference_id: newReport.id,
-        read: false,
-        created_at: new Date().toISOString()
-      });
-    }
-
-    // Also notify Technicians if priority is high
-    if (priority_score >= 4) {
-      sendLiveNotification({
-        id: `notif-${Date.now()}-tech`,
-        user_id: 'technician',
+      // Send live notifications
+      await sendLiveNotification({
+        id: `notif-${Date.now()}-admin`,
+        user_id: 'admin',
         title: notifTitle,
         message: notifMessage,
-        type: 'high_priority',
-        reference_id: newReport.id,
+        type: priority_score >= 4 ? 'high_priority' : 'status_change',
+        reference_id: newReportId,
         read: false,
         created_at: new Date().toISOString()
-      }, 'technician');
-    }
+      }, 'admin');
 
-    res.status(201).json(newReport);
+      if (reporter_id) {
+        await sendLiveNotification({
+          id: `notif-${Date.now()}-student`,
+          user_id: reporter_id,
+          title: '📝 Report Successfully Logged',
+          message: `Your report for "${category.replace('_', ' ').toUpperCase()}" has been received and is currently under administrative review.`,
+          type: 'status_change',
+          reference_id: newReportId,
+          read: false,
+          created_at: new Date().toISOString()
+        });
+      }
+
+      if (priority_score >= 4) {
+        await sendLiveNotification({
+          id: `notif-${Date.now()}-tech`,
+          user_id: 'technician',
+          title: notifTitle,
+          message: notifMessage,
+          type: 'high_priority',
+          reference_id: newReportId,
+          read: false,
+          created_at: new Date().toISOString()
+        }, 'technician');
+      }
+
+      const createdReportRes = await pool.query('SELECT * FROM reports WHERE id = $1', [newReportId]);
+      res.status(201).json(createdReportRes.rows[0]);
+    } catch (err) {
+      console.error('[PostgreSQL Error] Failed to create report:', err);
+      res.status(500).json({ error: 'Database query failed' });
+    }
   });
 
   // Sync / Offline Report Queue Endpoint
@@ -1669,59 +1377,68 @@ Output your decision as a strict JSON object (no markdown, no quotes, just raw J
       return res.status(400).json({ error: 'Invalid sync payload' });
     }
 
-    console.log(`[Sync] Syncing ${reports.length} offline reports for user ${reporter_id}`);
-    const syncedReports: Report[] = [];
+    const pool = getPgPool();
+    if (!pool) return res.status(500).json({ error: 'Database unavailable' });
 
-    for (const offlineReport of reports) {
-      // Re-use standard submit structure but with offline attributes
-      const reporter = db.users.find((u: User) => u.id === reporter_id);
-      
-      let category = offlineReport.category || 'others';
-      let priority_score = 2; // default
-      let zone_id = offlineReport.zone_id || 'zone-other';
-      let zone_name = offlineReport.zone_name || 'ABU Campus';
+    try {
+      console.log(`[Sync] Syncing ${reports.length} offline reports for user ${reporter_id}`);
+      const reporterRes = await pool.query('SELECT * FROM users WHERE id = $1', [reporter_id]);
+      const reporter = reporterRes.rows[0];
 
-      // Fallback simple classifier
-      const descLower = offlineReport.description.toLowerCase();
-      if (descLower.includes('light') || descLower.includes('bulb')) {
-        category = 'broken_lights';
-        priority_score = 3;
-      } else if (descLower.includes('water') || descLower.includes('leak') || descLower.includes('plumb')) {
-        category = 'plumbing';
-        priority_score = 3;
-      } else if (descLower.includes('wifi') || descLower.includes('network')) {
-        category = 'wifi_outage';
-        priority_score = 2;
-      } else if (descLower.includes('danger') || descLower.includes('security')) {
-        category = 'security';
-        priority_score = 4;
+      const syncedReports: any[] = [];
+
+      for (const offlineReport of reports) {
+        let category = offlineReport.category || 'others';
+        let priority_score = 2; // default
+        let zone_id = offlineReport.zone_id || 'zone-other';
+        let zone_name = offlineReport.zone_name || 'ABU Campus';
+
+        const descLower = offlineReport.description.toLowerCase();
+        if (descLower.includes('light') || descLower.includes('bulb')) {
+          category = 'broken_lights';
+          priority_score = 3;
+        } else if (descLower.includes('water') || descLower.includes('leak') || descLower.includes('plumb')) {
+          category = 'plumbing';
+          priority_score = 3;
+        } else if (descLower.includes('wifi') || descLower.includes('network')) {
+          category = 'wifi_outage';
+          priority_score = 2;
+        } else if (descLower.includes('danger') || descLower.includes('security')) {
+          category = 'security';
+          priority_score = 4;
+        }
+
+        const syncedReportId = `rep-sync-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+        const reporterName = offlineReport.is_anonymous ? 'Anonymous' : (reporter?.name || 'ABU Student');
+
+        await pool.query(`
+          INSERT INTO reports (
+            id, reporter_id, reporter_name, category, description, lat, lng, geom,
+            zone_id, zone_name, is_anonymous, status, priority_score, severity,
+            location_hint, sentiment, triage_analysis, photo_url, voice_url, voice_interpretation,
+            upvotes, report_count, upvoted_by, created_at
+          ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7, ST_SetSRID(ST_MakePoint($7, $6), 4326),
+            $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, 0, 1, '{}', $20
+          );`,
+          [
+            syncedReportId, reporter_id, reporterName, category, offlineReport.description,
+            parseFloat(offlineReport.lat), parseFloat(offlineReport.lng), zone_id, zone_name, !!offlineReport.is_anonymous,
+            'submitted', priority_score, priority_score >= 4 ? 'high' : 'medium', '',
+            'neutral', '', offlineReport.photo_url || null, null,
+            null, offlineReport.created_at || new Date().toISOString()
+          ]
+        );
+
+        const row = await pool.query('SELECT * FROM reports WHERE id = $1', [syncedReportId]);
+        syncedReports.push(row.rows[0]);
       }
 
-      const syncedReport: Report = {
-        id: `rep-sync-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-        reporter_id,
-        reporter_name: offlineReport.is_anonymous ? 'Anonymous' : (reporter?.name || 'ABU Student'),
-        category,
-        description: offlineReport.description,
-        photo_url: offlineReport.photo_url,
-        lat: offlineReport.lat,
-        lng: offlineReport.lng,
-        zone_id: zone_id,
-        zone_name: zone_name,
-        status: 'submitted',
-        priority_score,
-        is_anonymous: !!offlineReport.is_anonymous,
-        upvotes: 0,
-        upvoted_by: [],
-        created_at: offlineReport.created_at || new Date().toISOString()
-      };
-
-      db.reports.push(syncedReport);
-      syncedReports.push(syncedReport);
+      res.json({ success: true, syncedCount: syncedReports.length, reports: syncedReports });
+    } catch (err) {
+      console.error('[PostgreSQL Error] Failed to sync reports:', err);
+      res.status(500).json({ error: 'Database query failed' });
     }
-
-    saveDatabase(db);
-    res.json({ success: true, syncedCount: syncedReports.length, reports: syncedReports });
   });
 
   // Upvote Report
@@ -1731,59 +1448,51 @@ Output your decision as a strict JSON object (no markdown, no quotes, just raw J
 
     if (!user_id) return res.status(400).json({ error: 'User ID is required' });
 
-    const report = db.reports.find((r: Report) => r.id === id);
-    if (!report) return res.status(404).json({ error: 'Report not found' });
-
-    if (!report.upvoted_by) report.upvoted_by = [];
-
-    const index = report.upvoted_by.indexOf(user_id);
-    let isAdded = false;
-    if (index > -1) {
-      // Remove upvote
-      report.upvoted_by.splice(index, 1);
-      report.upvotes = Math.max(0, report.upvotes - 1);
-    } else {
-      // Add upvote
-      report.upvoted_by.push(user_id);
-      report.upvotes += 1;
-      isAdded = true;
-    }
-
-    saveDatabase(db);
-
-    // Sync with PostgreSQL
     const pool = getPgPool();
-    if (pool) {
-      try {
-        if (isAdded) {
-          await pool.query(
-            `UPDATE reports 
-             SET upvotes = upvotes + 1, 
-                 upvoted_by = array_append(upvoted_by, $1) 
-             WHERE id = $2;`,
-            [user_id, id]
-          );
-        } else {
-          await pool.query(
-            `UPDATE reports 
-             SET upvotes = GREATEST(0, upvotes - 1), 
-                 upvoted_by = array_remove(upvoted_by, $1) 
-             WHERE id = $2;`,
-            [user_id, id]
-          );
-        }
-      } catch (err) {
-        console.error('[PostgreSQL Error] Failed to sync upvote:', err);
-      }
-    }
+    if (!pool) return res.status(500).json({ error: 'Database unavailable' });
 
-    res.json(report);
+    try {
+      const reportRes = await pool.query('SELECT * FROM reports WHERE id = $1', [id]);
+      if (reportRes.rows.length === 0) return res.status(404).json({ error: 'Report not found' });
+      const report = reportRes.rows[0];
+
+      const upvotedBy = report.upvoted_by || [];
+      const index = upvotedBy.indexOf(user_id);
+      let isAdded = false;
+
+      if (index > -1) {
+        // Remove upvote
+        await pool.query(
+          `UPDATE reports 
+           SET upvotes = GREATEST(0, upvotes - 1), 
+               upvoted_by = array_remove(upvoted_by, $1) 
+           WHERE id = $2;`,
+          [user_id, id]
+        );
+      } else {
+        // Add upvote
+        await pool.query(
+          `UPDATE reports 
+           SET upvotes = upvotes + 1, 
+               upvoted_by = array_append(upvoted_by, $1) 
+           WHERE id = $2;`,
+          [user_id, id]
+        );
+        isAdded = true;
+      }
+
+      const updatedRes = await pool.query('SELECT * FROM reports WHERE id = $1', [id]);
+      res.json(updatedRes.rows[0]);
+    } catch (err) {
+      console.error('[PostgreSQL Error] Upvote failed:', err);
+      res.status(500).json({ error: 'Database query failed' });
+    }
   });
 
   // Assign Technician to Report
   app.post('/api/reports/:id/assign', async (req, res) => {
     // Strict Auth Guard
-    const user = getAuthenticatedUser(req);
+    const user = await getAuthenticatedUser(req);
     if (!user || user.role !== 'admin') {
       return res.status(403).json({ error: 'Strict Auth Guard: Access Denied. Only system administrators can assign work orders.' });
     }
@@ -1793,475 +1502,311 @@ Output your decision as a strict JSON object (no markdown, no quotes, just raw J
 
     if (!technician_id) return res.status(400).json({ error: 'Technician ID is required' });
 
-    const report = db.reports.find((r: Report) => r.id === id);
-    if (!report) return res.status(404).json({ error: 'Report not found' });
-
-    const technician = db.technicians.find((t: Technician) => t.id === technician_id);
-    if (!technician) return res.status(404).json({ error: 'Technician not found' });
-
-    // Update report
-    report.status = 'assigned';
-    
-    // Create assignment
-    const assignment: Assignment = {
-      id: `asg-${Date.now()}`,
-      report_id: report.id,
-      technician_id,
-      technician_name: technician.name,
-      assigned_at: new Date().toISOString()
-    };
-
-    db.assignments.push(assignment);
-
-    // Increase current load
-    technician.current_load += 1;
-
-    // Add administrative comment
-    db.comments.push({
-      id: `cmt-${Date.now()}`,
-      report_id: report.id,
-      user_id: user.id,
-      user_name: user.name,
-      user_role: 'admin',
-      text: `Technician ${technician.name} has been assigned to this ticket. Task queue load: ${technician.current_load} open assignments.`,
-      created_at: new Date().toISOString()
-    });
-
-    saveDatabase(db);
-
-    // Sync with PostgreSQL
     const pool = getPgPool();
-    if (pool) {
-      try {
-        // 1. Update report status
-        await pool.query(
-          `UPDATE reports SET status = 'assigned' WHERE id = $1;`,
-          [id]
-        );
+    if (!pool) return res.status(500).json({ error: 'Database unavailable' });
 
-        // 2. Insert assignment
-        await pool.query(
-          `INSERT INTO assignments (id, report_id, technician_id, technician_name, assigned_at)
-           VALUES ($1, $2, $3, $4, NOW());`,
-          [assignment.id, assignment.report_id, assignment.technician_id, assignment.technician_name]
-        );
+    try {
+      const reportRes = await pool.query('SELECT * FROM reports WHERE id = $1', [id]);
+      if (reportRes.rows.length === 0) return res.status(404).json({ error: 'Report not found' });
+      const report = reportRes.rows[0];
 
-        // 3. Increase load
-        await pool.query(
-          `UPDATE technicians SET current_load = current_load + 1 WHERE id = $1;`,
-          [technician_id]
-        );
+      const techRes = await pool.query('SELECT * FROM technicians WHERE id = $1', [technician_id]);
+      if (techRes.rows.length === 0) return res.status(404).json({ error: 'Technician not found' });
+      const technician = techRes.rows[0];
 
-        // 4. Add comment
-        await pool.query(
-          `INSERT INTO comments (id, report_id, user_id, user_name, user_role, text)
-           VALUES ($1, $2, $3, $4, $5, $6);`,
-          [
-            `cmt-${Date.now()}`,
-            id,
-            user.id,
-            user.name,
-            'admin',
-            `Technician ${technician.name} has been assigned to this ticket. Task queue load: ${technician.current_load} open assignments.`
-          ]
-        );
+      // Update report status
+      await pool.query(`UPDATE reports SET status = 'assigned' WHERE id = $1;`, [id]);
 
-        // 5. Insert notification
-        await pool.query(
-          `INSERT INTO notifications (id, user_id, title, message, type, reference_id)
-           VALUES ($1, $2, $3, $4, $5, $6);`,
-          [
-            `notif-${Date.now()}-assign`,
-            technician.user_id,
-            '🛠️ New Task Assigned',
-            `You have been assigned to: "${report.description.substring(0, 60)}..." in ${report.zone_name}`,
-            'new_assignment',
-            report.id
-          ]
-        );
-      } catch (err) {
-        console.error('[PostgreSQL Error] Failed to sync assignment:', err);
-      }
-    }
+      // Create assignment record
+      const assignmentId = `asg-${Date.now()}`;
+      await pool.query(
+        `INSERT INTO assignments (id, report_id, technician_id, technician_name, assigned_at)
+         VALUES ($1, $2, $3, $4, NOW());`,
+        [assignmentId, id, technician_id, technician.name]
+      );
 
-    // Trigger Notification for the specific assigned Technician
-    sendLiveNotification({
-      id: `notif-${Date.now()}-assign`,
-      user_id: technician.user_id, // notify the specific technician user
-      title: '🛠️ New Task Assigned',
-      message: `You have been assigned to: "${report.description.substring(0, 60)}..." in ${report.zone_name}`,
-      type: 'new_assignment',
-      reference_id: report.id,
-      read: false,
-      created_at: new Date().toISOString()
-    });
+      // Increase load
+      await pool.query(`UPDATE technicians SET current_load = current_load + 1 WHERE id = $1;`, [technician_id]);
 
-    // Notify the Student who filed the report
-    if (report.reporter_id) {
-      sendLiveNotification({
-        id: `notif-${Date.now()}-assign-student`,
-        user_id: report.reporter_id,
-        title: '🛠️ Technician Dispatched',
-        message: `Technician ${technician.name} has been assigned to resolve your report: "${report.description.substring(0, 60)}..."`,
-        type: 'status_change',
-        reference_id: report.id,
+      // Add comment
+      const commentId = `cmt-${Date.now()}`;
+      const commentText = `Technician ${technician.name} has been assigned to this ticket. Task queue load: ${technician.current_load + 1} open assignments.`;
+      await pool.query(
+        `INSERT INTO comments (id, report_id, user_id, user_name, user_role, text)
+         VALUES ($1, $2, $3, $4, $5, $6);`,
+        [commentId, id, user.id, user.name, 'admin', commentText]
+      );
+
+      // Notify assigned technician
+      await sendLiveNotification({
+        id: `notif-${Date.now()}-assign`,
+        user_id: technician.user_id,
+        title: '🛠️ New Task Assigned',
+        message: `You have been assigned to: "${report.description.substring(0, 60)}..." in ${report.zone_name || 'ABU Campus'}`,
+        type: 'new_assignment',
+        reference_id: id,
         read: false,
         created_at: new Date().toISOString()
       });
-    }
 
-    res.json({ report, assignment });
+      // Notify reporting student
+      if (report.reporter_id) {
+        await sendLiveNotification({
+          id: `notif-${Date.now()}-assign-student`,
+          user_id: report.reporter_id,
+          title: '🛠️ Technician Dispatched',
+          message: `Technician ${technician.name} has been assigned to resolve your report: "${report.description.substring(0, 60)}..."`,
+          type: 'status_change',
+          reference_id: id,
+          read: false,
+          created_at: new Date().toISOString()
+        });
+      }
+
+      const updatedReportRes = await pool.query('SELECT * FROM reports WHERE id = $1', [id]);
+      res.json({ 
+        report: updatedReportRes.rows[0], 
+        assignment: { id: assignmentId, report_id: id, technician_id, technician_name: technician.name, assigned_at: new Date().toISOString() } 
+      });
+    } catch (err) {
+      console.error('[PostgreSQL Error] Assign failed:', err);
+      res.status(500).json({ error: 'Database query failed' });
+    }
   });
 
   // Update Report Status (Technician or Admin)
   app.put('/api/reports/:id/status', async (req, res) => {
     // Strict Auth Guard
-    const user = getAuthenticatedUser(req);
+    const user = await getAuthenticatedUser(req);
     if (!user || (user.role !== 'technician' && user.role !== 'admin')) {
       return res.status(403).json({ error: 'Strict Auth Guard: Access Denied. Only technicians or system administrators can update ticket status.' });
     }
 
     const { id } = req.params;
-    const { status, technician_id, comment_text, photo_proof, voice_url } = req.body;
+    const { status, comment_text, photo_proof, voice_url } = req.body;
 
     if (!status) return res.status(400).json({ error: 'Status is required' });
 
-    const report = db.reports.find((r: Report) => r.id === id);
-    if (!report) return res.status(404).json({ error: 'Report not found' });
+    const pool = getPgPool();
+    if (!pool) return res.status(500).json({ error: 'Database unavailable' });
 
-    // Strict assigned-technician check
-    if (user.role === 'technician') {
-      const tech = db.technicians.find((t: Technician) => t.user_id === user.id);
-      if (!tech) {
-        return res.status(403).json({ error: 'Access Denied: Technician profile not found.' });
-      }
-      const activeAsg = db.assignments.find((a: Assignment) => a.report_id === id && !a.resolved_at);
-      if (!activeAsg || activeAsg.technician_id !== tech.id) {
-        return res.status(403).json({ error: 'Access Denied: You are not assigned to this work order.' });
-      }
-    }
+    try {
+      const reportRes = await pool.query('SELECT * FROM reports WHERE id = $1', [id]);
+      if (reportRes.rows.length === 0) return res.status(404).json({ error: 'Report not found' });
+      const report = reportRes.rows[0];
 
-    const prevStatus = report.status;
-    report.status = status;
+      // Strict assigned-technician check
+      if (user.role === 'technician') {
+        const techRes = await pool.query('SELECT * FROM technicians WHERE user_id = $1', [user.id]);
+        if (techRes.rows.length === 0) {
+          return res.status(403).json({ error: 'Access Denied: Technician profile not found.' });
+        }
+        const tech = techRes.rows[0];
 
-    // If resolved, close assignments
-    if (status === 'resolved') {
-      const assignment = db.assignments.find((a: Assignment) => a.report_id === id && !a.resolved_at);
-      if (assignment) {
-        assignment.resolved_at = new Date().toISOString();
-        
-        // Decrease load
-        const tech = db.technicians.find((t: Technician) => t.id === assignment.technician_id);
-        if (tech) {
-          tech.current_load = Math.max(0, tech.current_load - 1);
+        const activeAsgRes = await pool.query(
+          'SELECT * FROM assignments WHERE report_id = $1 AND resolved_at IS NULL LIMIT 1;',
+          [id]
+        );
+        if (activeAsgRes.rows.length === 0 || activeAsgRes.rows[0].technician_id !== tech.id) {
+          return res.status(403).json({ error: 'Access Denied: You are not assigned to this work order.' });
         }
       }
 
-      if (photo_proof) {
-        report.photo_url = photo_proof; // update with resolved photo
+      const prevStatus = report.status;
+
+      // Update report status and photos
+      await pool.query(
+        `UPDATE reports 
+         SET status = $1, 
+             photo_url = COALESCE($2, photo_url), 
+             voice_url = COALESCE($3, voice_url) 
+         WHERE id = $4;`,
+        [status, photo_proof || null, voice_url || null, id]
+      );
+
+      // If resolved, close assignments
+      if (status === 'resolved') {
+        const activeAsgRes = await pool.query(
+          'SELECT * FROM assignments WHERE report_id = $1 AND resolved_at IS NULL LIMIT 1;',
+          [id]
+        );
+        if (activeAsgRes.rows.length > 0) {
+          const assignment = activeAsgRes.rows[0];
+          await pool.query(
+            'UPDATE assignments SET resolved_at = NOW() WHERE id = $1;',
+            [assignment.id]
+          );
+          await pool.query(
+            'UPDATE technicians SET current_load = GREATEST(0, current_load - 1) WHERE id = $1;',
+            [assignment.technician_id]
+          );
+        }
       }
-      if (voice_url) {
-        report.voice_url = voice_url; // update with voice proof
-      }
-    }
 
-    // Add update comment
-    const actorName = user.name || 'Technician';
+      // Add update comment
+      const actorName = user.name || 'Technician';
+      const commentId = `cmt-${Date.now()}`;
+      const actualCommentText = comment_text || `Status updated from "${prevStatus}" to "${status}" by ${actorName}.`;
+      await pool.query(
+        `INSERT INTO comments (id, report_id, user_id, user_name, user_role, text)
+         VALUES ($1, $2, $3, $4, $5, $6);`,
+        [commentId, id, user.id, actorName, user.role, actualCommentText]
+      );
 
-    db.comments.push({
-      id: `cmt-${Date.now()}`,
-      report_id: report.id,
-      user_id: user.id,
-      user_name: actorName,
-      user_role: user.role,
-      text: comment_text || `Status updated from "${prevStatus}" to "${status}" by ${actorName}.`,
-      created_at: new Date().toISOString()
-    });
-
-    // Feature 4: Natural-language status updates via Gemma 4
-    let notificationMessage = `Your report for ${report.category.replace('_', ' ')} is now "${status.replace('_', ' ').toUpperCase()}". Updated by ${actorName}.`;
-    
-    try {
-      console.log(`[Gemma Status Notification] Generating contextual status notification message...`);
-      const systemInstruction = `You are Gemma 4, the automated notification dispatcher for Ahmadu Bello University maintenance.
+      // Contextual status notification via Gemma 4
+      let notificationMessage = `Your report for ${report.category.replace('_', ' ')} is now "${status.replace('_', ' ').toUpperCase()}". Updated by ${actorName}.`;
+      
+      try {
+        console.log(`[Gemma Status Notification] Generating contextual status notification message...`);
+        const systemInstruction = `You are Gemma 4, the automated notification dispatcher for Ahmadu Bello University maintenance.
 Generate a short, friendly, and highly contextual notification message for a student who reported an issue.
 Keep your response to exactly 1 or 2 concise, reassuring sentences. Do not use greetings or signature blocks. Just the notification content.`;
 
-      const prompt = `Generate a status change update for this report:
+        const prompt = `Generate a status change update for this report:
 - Category: ${report.category}
 - Description: "${report.description}"
 - Transition: from "${prevStatus}" to "${status}"
 - Technician Actions/Comments: "${comment_text || 'None'}"`;
 
-      const aiResponse = await callGemmaAI(prompt, systemInstruction, false);
-      if (aiResponse && aiResponse.trim().length > 5) {
-        notificationMessage = aiResponse.trim();
+        const aiResponse = await callGemmaAI(prompt, systemInstruction, false);
+        if (aiResponse && aiResponse.trim().length > 5) {
+          notificationMessage = aiResponse.trim();
+        }
+      } catch (err) {
+        console.warn('[Gemma Status Notification Error] AI notification generation failed. Using static template fallback:', err.message);
       }
-    } catch (err) {
-      console.warn('[Gemma Status Notification Error] AI notification generation failed. Using static template fallback:', err.message);
-      // fallback is already set to default template notificationMessage
-    }
 
-    saveDatabase(db);
+      // Trigger Notification for student reporter
+      if (report.reporter_id) {
+        await sendLiveNotification({
+          id: `notif-${Date.now()}-status`,
+          user_id: report.reporter_id,
+          title: `🔄 Ticket Status Updated: ${status.replace('_', ' ').toUpperCase()}`,
+          message: notificationMessage,
+          type: 'status_change',
+          reference_id: id,
+          read: false,
+          created_at: new Date().toISOString()
+        });
+      }
 
-    // Trigger Notification for the Student reporter
-    sendLiveNotification({
-      id: `notif-${Date.now()}-status`,
-      user_id: report.reporter_id, // direct notify reporting student
-      title: `🔄 Ticket Status Updated: ${status.replace('_', ' ').toUpperCase()}`,
-      message: notificationMessage,
-      type: 'status_change',
-      reference_id: report.id,
-      read: false,
-      created_at: new Date().toISOString()
-    });
+      // Notify admin on inspection start
+      if (status === 'in_progress') {
+        await sendLiveNotification({
+          id: `notif-${Date.now()}-inspect-start-admin`,
+          user_id: 'admin',
+          title: '🚀 Inspection Started',
+          message: `Technician ${actorName} has started the inspection for Ticket #${id} (${report.category.replace('_', ' ').toUpperCase()}) in ${report.zone_name || 'ABU Campus'}.`,
+          type: 'status_change',
+          reference_id: id,
+          read: false,
+          created_at: new Date().toISOString()
+        }, 'admin');
+      }
 
-    // Notify Admin when inspection starts
-    if (status === 'in_progress') {
-      sendLiveNotification({
-        id: `notif-${Date.now()}-inspect-start-admin`,
-        user_id: 'admin',
-        title: '🚀 Inspection Started',
-        message: `Technician ${actorName} has started the inspection for Ticket #${report.id} (${report.category.replace('_', ' ').toUpperCase()}) in ${report.zone_name || 'ABU Campus'}.`,
-        type: 'status_change',
-        reference_id: report.id,
-        read: false,
-        created_at: new Date().toISOString()
-      }, 'admin');
-    }
+      // Notify admin and subscribers on resolution
+      if (status === 'resolved') {
+        await sendLiveNotification({
+          id: `notif-${Date.now()}-inspect-finish-admin`,
+          user_id: 'admin',
+          title: '✅ Inspection Finished & Resolved',
+          message: `Technician ${actorName} has confirmed finishing of the inspection and resolved Ticket #${id} (${report.category.replace('_', ' ').toUpperCase()}) in ${report.zone_name || 'ABU Campus'}.`,
+          type: 'status_change',
+          reference_id: id,
+          read: false,
+          created_at: new Date().toISOString()
+        }, 'admin');
 
-    // Notify Admin and reporters when inspection finishes (resolved)
-    if (status === 'resolved') {
-      // 1. Notify Admin
-      sendLiveNotification({
-        id: `notif-${Date.now()}-inspect-finish-admin`,
-        user_id: 'admin',
-        title: '✅ Inspection Finished & Resolved',
-        message: `Technician ${actorName} has confirmed finishing of the inspection and resolved Ticket #${report.id} (${report.category.replace('_', ' ').toUpperCase()}) in ${report.zone_name || 'ABU Campus'}.`,
-        type: 'status_change',
-        reference_id: report.id,
-        read: false,
-        created_at: new Date().toISOString()
-      }, 'admin');
-
-      // 2. Notify upvoter students (reporters)
-      if (report.upvoted_by && report.upvoted_by.length > 0) {
-        report.upvoted_by.forEach((upvoterId: string) => {
+        const upvotedBy = report.upvoted_by || [];
+        for (const upvoterId of upvotedBy) {
           if (upvoterId !== report.reporter_id) {
-            sendLiveNotification({
+            await sendLiveNotification({
               id: `notif-${Date.now()}-inspect-finish-upvoter-${upvoterId}`,
               user_id: upvoterId,
               title: '🎉 Subscribed Ticket Resolved!',
-              message: `The inspection is finished and a ticket you upvoted (#${report.id}) has been resolved by ${actorName}: "${comment_text || 'Completed successfully.'}"`,
+              message: `The inspection is finished and a ticket you upvoted (#${id}) has been resolved by ${actorName}: "${comment_text || 'Completed successfully.'}"`,
               type: 'status_change',
-              reference_id: report.id,
+              reference_id: id,
               read: false,
               created_at: new Date().toISOString()
             });
           }
-        });
+        }
       }
+
+      const updatedReportRes = await pool.query('SELECT * FROM reports WHERE id = $1', [id]);
+      res.json(updatedReportRes.rows[0]);
+    } catch (err) {
+      console.error('[PostgreSQL Error] Update status failed:', err);
+      res.status(500).json({ error: 'Database query failed' });
     }
-
-    // Sync with PostgreSQL
-    const pool = getPgPool();
-    if (pool) {
-      try {
-        console.log(`[PostgreSQL Status Update] Syncing report status change to "${status}"...`);
-        
-        // Update report status, photo_url, voice_url
-        await pool.query(
-          `UPDATE reports SET status = $1, photo_url = COALESCE($2, photo_url), voice_url = COALESCE($3, voice_url) WHERE id = $4;`,
-          [status, photo_proof || null, voice_url || null, id]
-        );
-
-        // If resolved, close assignments and decrement load
-        if (status === 'resolved') {
-          const assignRes = await pool.query(
-            `SELECT technician_id FROM assignments WHERE report_id = $1 AND resolved_at IS NULL LIMIT 1;`,
-            [id]
-          );
-          if (assignRes.rows.length > 0) {
-            const techId = assignRes.rows[0].technician_id;
-            await pool.query(
-              `UPDATE assignments SET resolved_at = NOW() WHERE report_id = $1 AND resolved_at IS NULL;`,
-              [id]
-            );
-            await pool.query(
-              `UPDATE technicians SET current_load = GREATEST(0, current_load - 1) WHERE id = $1;`,
-              [techId]
-            );
-          }
-        }
-
-        // Insert update comment
-        await pool.query(
-          `INSERT INTO comments (id, report_id, user_id, user_name, user_role, text)
-           VALUES ($1, $2, $3, $4, $5, $6);`,
-          [
-            `cmt-${Date.now()}`,
-            id,
-            user.id,
-            actorName,
-            user.role,
-            comment_text || `Status updated from "${prevStatus}" to "${status}" by ${actorName}.`
-          ]
-        );
-
-        // Insert notifications in PG
-        // Notify Student
-        await pool.query(
-          `INSERT INTO notifications (id, user_id, title, message, type, reference_id)
-           VALUES ($1, $2, $3, $4, $5, $6);`,
-          [
-            `notif-${Date.now()}-status`,
-            report.reporter_id,
-            `🔄 Ticket Status Updated: ${status.replace('_', ' ').toUpperCase()}`,
-            notificationMessage,
-            'status_change',
-            report.id
-          ]
-        );
-
-        // Notify Admin on inspection start
-        if (status === 'in_progress') {
-          await pool.query(
-            `INSERT INTO notifications (id, user_id, title, message, type, reference_id)
-             VALUES ($1, $2, $3, $4, $5, $6);`,
-            [
-              `notif-${Date.now()}-inspect-start-admin`,
-              'admin',
-              '🚀 Inspection Started',
-              `Technician ${actorName} has started the inspection for Ticket #${report.id} (${report.category.replace('_', ' ').toUpperCase()}) in ${report.zone_name || 'ABU Campus'}.`,
-              'status_change',
-              report.id
-            ]
-          );
-        }
-
-        // Notify Admin and Upvoters on finish
-        if (status === 'resolved') {
-          await pool.query(
-            `INSERT INTO notifications (id, user_id, title, message, type, reference_id)
-             VALUES ($1, $2, $3, $4, $5, $6);`,
-            [
-              `notif-${Date.now()}-inspect-finish-admin`,
-              'admin',
-              '✅ Inspection Finished & Resolved',
-              `Technician ${actorName} has confirmed finishing of the inspection and resolved Ticket #${report.id} (${report.category.replace('_', ' ').toUpperCase()}) in ${report.zone_name || 'ABU Campus'}.`,
-              'status_change',
-              report.id
-            ]
-          );
-
-          if (report.upvoted_by && report.upvoted_by.length > 0) {
-            for (const upvoterId of report.upvoted_by) {
-              if (upvoterId !== report.reporter_id) {
-                await pool.query(
-                  `INSERT INTO notifications (id, user_id, title, message, type, reference_id)
-                   VALUES ($1, $2, $3, $4, $5, $6);`,
-                  [
-                    `notif-${Date.now()}-inspect-finish-upvoter-${upvoterId}`,
-                    upvoterId,
-                    '🎉 Subscribed Ticket Resolved!',
-                    `The inspection is finished and a ticket you upvoted (#${report.id}) has been resolved by ${actorName}: "${comment_text || 'Completed successfully.'}"`,
-                    'status_change',
-                    report.id
-                  ]
-                );
-              }
-            }
-          }
-        }
-      } catch (err) {
-        console.error('[PostgreSQL Error] Failed to sync status update in DB:', err);
-      }
-    }
-
-    res.json(report);
   });
 
   // Delete Report (Admin or Reporter Student)
   app.delete('/api/reports/:id', async (req, res) => {
-    const user = getAuthenticatedUser(req);
+    const user = await getAuthenticatedUser(req);
     if (!user) {
       return res.status(401).json({ error: 'Authentication required' });
     }
 
     const { id } = req.params;
-    const reportIndex = db.reports.findIndex((r: Report) => r.id === id);
-    if (reportIndex === -1) {
-      return res.status(404).json({ error: 'Report not found' });
-    }
-
-    const report = db.reports[reportIndex];
-    
-    // Auth Check: Only Admin or the student who reported it can delete
-    if (user.role !== 'admin' && report.reporter_id !== user.id) {
-      return res.status(403).json({ error: 'Access Denied: You do not have permission to delete this report.' });
-    }
-
-    // If report was assigned and active, decrement technician current load
-    if (report.status === 'assigned') {
-      const activeAssignment = db.assignments.find((a: Assignment) => a.report_id === id && !a.resolved_at);
-      if (activeAssignment) {
-        const tech = db.technicians.find((t: Technician) => t.id === activeAssignment.technician_id);
-        if (tech) {
-          tech.current_load = Math.max(0, tech.current_load - 1);
-        }
-      }
-    }
-
-    // Remove from db
-    db.reports.splice(reportIndex, 1);
-    
-    // Filter comments & assignments associated with deleted report
-    db.comments = db.comments.filter((c: Comment) => c.report_id !== id);
-    db.assignments = db.assignments.filter((a: Assignment) => a.report_id !== id);
-
-    saveDatabase(db);
-
-    // Sync with PostgreSQL
     const pool = getPgPool();
-    if (pool) {
-      try {
-        console.log(`[PostgreSQL Delete] Deleting report #${id} and dependencies...`);
-        // If assigned, decrease load
-        const assignRes = await pool.query(
-          `SELECT technician_id FROM assignments WHERE report_id = $1 AND resolved_at IS NULL LIMIT 1;`,
-          [id]
-        );
-        if (assignRes.rows.length > 0) {
-          const techId = assignRes.rows[0].technician_id;
-          await pool.query(
-            `UPDATE technicians SET current_load = GREATEST(0, current_load - 1) WHERE id = $1;`,
-            [techId]
-          );
-        }
+    if (!pool) return res.status(500).json({ error: 'Database unavailable' });
 
-        // Delete dependencies (comments, assignments) & report
-        await pool.query('DELETE FROM comments WHERE report_id = $1;', [id]);
-        await pool.query('DELETE FROM assignments WHERE report_id = $1;', [id]);
-        await pool.query('DELETE FROM reports WHERE id = $1;', [id]);
-      } catch (err) {
-        console.error('[PostgreSQL Error] Failed to delete report from DB:', err);
+    try {
+      const reportRes = await pool.query('SELECT * FROM reports WHERE id = $1', [id]);
+      if (reportRes.rows.length === 0) return res.status(404).json({ error: 'Report not found' });
+      const report = reportRes.rows[0];
+
+      if (user.role !== 'admin' && report.reporter_id !== user.id) {
+        return res.status(403).json({ error: 'Access Denied: You do not have permission to delete this report.' });
       }
-    }
 
-    res.json({ success: true, message: 'Report deleted successfully' });
+      // If report was assigned and active, decrement technician current load
+      const assignRes = await pool.query(
+        `SELECT technician_id FROM assignments WHERE report_id = $1 AND resolved_at IS NULL LIMIT 1;`,
+        [id]
+      );
+      if (assignRes.rows.length > 0) {
+        const techId = assignRes.rows[0].technician_id;
+        await pool.query(
+          `UPDATE technicians SET current_load = GREATEST(0, current_load - 1) WHERE id = $1;`,
+          [techId]
+        );
+      }
+
+      // Delete dependencies & report
+      await pool.query('DELETE FROM comments WHERE report_id = $1;', [id]);
+      await pool.query('DELETE FROM assignments WHERE report_id = $1;', [id]);
+      await pool.query('DELETE FROM reports WHERE id = $1;', [id]);
+
+      res.json({ success: true, message: 'Report deleted successfully' });
+    } catch (err) {
+      console.error('[PostgreSQL Error] Delete failed:', err);
+      res.status(500).json({ error: 'Database query failed' });
+    }
   });
 
   // Get Comments for Report
-  app.get('/api/reports/:id/comments', (req, res) => {
+  app.get('/api/reports/:id/comments', async (req, res) => {
     const { id } = req.params;
-    const reportComments = db.comments.filter((c: Comment) => c.report_id === id);
-    // Sort oldest first for chat-like stream
-    reportComments.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-    res.json(reportComments);
+    const pool = getPgPool();
+    if (!pool) return res.status(500).json({ error: 'Database unavailable' });
+
+    try {
+      const result = await pool.query(
+        'SELECT * FROM comments WHERE report_id = $1 ORDER BY created_at ASC;',
+        [id]
+      );
+      res.json(result.rows);
+    } catch (err) {
+      console.error('[PostgreSQL Error] Comments fetch failed:', err);
+      res.status(500).json({ error: 'Database query failed' });
+    }
   });
 
   // Create Comment
-  app.post('/api/reports/:id/comments', (req, res) => {
+  app.post('/api/reports/:id/comments', async (req, res) => {
     const { id } = req.params;
     const { user_id, user_name, user_role, text } = req.body;
 
@@ -2269,39 +1814,45 @@ Keep your response to exactly 1 or 2 concise, reassuring sentences. Do not use g
       return res.status(400).json({ error: 'User ID and comment text are required' });
     }
 
-    const newComment: Comment = {
-      id: `cmt-${Date.now()}`,
-      report_id: id,
-      user_id,
-      user_name: user_name || 'Anonymous User',
-      user_role: user_role || 'student',
-      text,
-      created_at: new Date().toISOString()
-    };
+    const pool = getPgPool();
+    if (!pool) return res.status(500).json({ error: 'Database unavailable' });
 
-    db.comments.push(newComment);
-    saveDatabase(db);
-    res.status(201).json(newComment);
+    try {
+      const commentId = `cmt-${Date.now()}`;
+      const actualName = user_name || 'Anonymous User';
+      const actualRole = user_role || 'student';
+
+      await pool.query(
+        `INSERT INTO comments (id, report_id, user_id, user_name, user_role, text)
+         VALUES ($1, $2, $3, $4, $5, $6);`,
+        [commentId, id, user_id, actualName, actualRole, text]
+      );
+
+      const createdRes = await pool.query('SELECT * FROM comments WHERE id = $1', [commentId]);
+      res.status(201).json(createdRes.rows[0]);
+    } catch (err) {
+      console.error('[PostgreSQL Error] Comment creation failed:', err);
+      res.status(500).json({ error: 'Database query failed' });
+    }
   });
 
   // Get Technicians List
   app.get('/api/technicians', async (req, res) => {
     const pool = getPgPool();
-    if (pool) {
-      try {
-        const result = await pool.query('SELECT * FROM technicians ORDER BY name ASC');
-        return res.json(result.rows);
-      } catch (err) {
-        console.error('[PostgreSQL Error] Failed to fetch technicians:', err);
-      }
+    if (!pool) return res.status(500).json({ error: 'Database unavailable' });
+    try {
+      const result = await pool.query('SELECT * FROM technicians ORDER BY name ASC');
+      return res.json(result.rows);
+    } catch (err) {
+      console.error('[PostgreSQL Error] Failed to fetch technicians:', err);
+      return res.status(500).json({ error: 'Database query failed' });
     }
-    res.json(db.technicians);
   });
 
   // Create/Register a Dedicated Technician Profile (Admin Only)
   app.post('/api/admin/technicians', async (req, res) => {
     // Strict Auth Guard
-    const user = getAuthenticatedUser(req);
+    const user = await getAuthenticatedUser(req);
     if (!user || user.role !== 'admin') {
       return res.status(403).json({ error: 'Strict Auth Guard: Access Denied. Only system administrators can register technicians.' });
     }
@@ -2317,285 +1868,169 @@ Keep your response to exactly 1 or 2 concise, reassuring sentences. Do not use g
       return res.status(400).json({ error: 'Technician email must belong to the Ahmadu Bello University domain (abu.edu.ng).' });
     }
 
-    // Check if user already exists
-    let existingUser = db.users.find((u: User) => u.email.toLowerCase() === normalizedEmail);
-    if (existingUser && existingUser.role !== 'technician') {
-      return res.status(400).json({ error: 'A user with this email already exists with a different role.' });
-    }
-
-    let techUser: User;
-    if (!existingUser) {
-      techUser = {
-        id: `usr-tech-${Date.now()}`,
-        google_id: `g-tech-${Math.random().toString(36).substr(2, 9)}`,
-        name: name,
-        email: normalizedEmail,
-        role: 'technician'
-      };
-      db.users.push(techUser);
-    } else {
-      techUser = existingUser;
-    }
-
-    // Check if technician profile already exists
-    let existingTech = db.technicians.find((t: Technician) => t.user_id === techUser.id);
-    if (existingTech) {
-      existingTech.skill_tags = skill_tags || existingTech.skill_tags;
-      saveDatabase(db);
-      return res.json({ success: true, message: 'Technician profile updated.', technician: existingTech });
-    }
-
-    const newTech: Technician = {
-      id: `tech-${Date.now()}`,
-      user_id: techUser.id,
-      name: name,
-      skill_tags: skill_tags || ['others'],
-      current_load: 0
-    };
-
-    db.technicians.push(newTech);
-    saveDatabase(db);
-
-    // Sync with PostgreSQL
     const pool = getPgPool();
-    if (pool) {
-      try {
-        await pool.query(
+    if (!pool) return res.status(500).json({ error: 'Database unavailable' });
+
+    try {
+      // Check if user already exists
+      const userRes = await pool.query('SELECT * FROM users WHERE LOWER(email) = $1 LIMIT 1', [normalizedEmail]);
+      let techUser;
+
+      if (userRes.rows.length > 0) {
+        techUser = userRes.rows[0];
+        if (techUser.role !== 'technician') {
+          return res.status(400).json({ error: 'A user with this email already exists with a different role.' });
+        }
+      } else {
+        const userId = `usr-tech-${Date.now()}`;
+        const googleId = `g-tech-${Math.random().toString(36).substr(2, 9)}`;
+        const insertUserRes = await pool.query(
           `INSERT INTO users (id, google_id, name, email, role) 
-           VALUES ($1, $2, $3, $4, $5) 
-           ON CONFLICT (id) DO UPDATE SET name = $3, role = $5;`,
-          [techUser.id, techUser.google_id, techUser.name, techUser.email, techUser.role]
+           VALUES ($1, $2, $3, $4, $5) RETURNING *;`,
+          [userId, googleId, name, normalizedEmail, 'technician']
         );
-
-        await pool.query(
-          `INSERT INTO technicians (id, user_id, name, skill_tags, current_load) 
-           VALUES ($1, $2, $3, $4, $5) 
-           ON CONFLICT (id) DO UPDATE SET name = $3, skill_tags = $4;`,
-          [newTech.id, newTech.user_id, newTech.name, newTech.skill_tags, newTech.current_load]
-        );
-      } catch (err) {
-        console.error('[PostgreSQL Error] Failed to create technician in DB:', err);
+        techUser = insertUserRes.rows[0];
       }
-    }
 
-    res.json({ success: true, message: 'Technician profile successfully registered.', technician: newTech });
+      // Check if technician profile already exists
+      const techProfileRes = await pool.query('SELECT * FROM technicians WHERE user_id = $1 LIMIT 1', [techUser.id]);
+      if (techProfileRes.rows.length > 0) {
+        const existingTech = techProfileRes.rows[0];
+        const updatedTechRes = await pool.query(
+          `UPDATE technicians SET skill_tags = $1 WHERE id = $2 RETURNING *;`,
+          [skill_tags || existingTech.skill_tags, existingTech.id]
+        );
+        return res.json({ success: true, message: 'Technician profile updated.', technician: updatedTechRes.rows[0] });
+      }
+
+      const newTechId = `tech-${Date.now()}`;
+      const actualSkillTags = skill_tags || ['others'];
+      const insertTechRes = await pool.query(
+        `INSERT INTO technicians (id, user_id, name, skill_tags, current_load) 
+         VALUES ($1, $2, $3, $4, $5) RETURNING *;`,
+        [newTechId, techUser.id, name, actualSkillTags, 0]
+      );
+
+      res.json({ success: true, message: 'Technician profile successfully registered.', technician: insertTechRes.rows[0] });
+    } catch (err) {
+      console.error('[PostgreSQL Error] Failed to register technician:', err);
+      res.status(500).json({ error: 'Database query failed' });
+    }
   });
 
   // Get Campus stats
   app.get('/api/stats', async (req, res) => {
     const pool = getPgPool();
-    if (pool) {
-      try {
-        const reportsRes = await pool.query('SELECT category, status, zone_name, zone_id FROM reports;');
-        const reports = reportsRes.rows;
-        const total = reports.length;
-        const resolved = reports.filter(r => r.status === 'resolved').length;
-        const open = total - resolved;
+    if (!pool) return res.status(500).json({ error: 'Database unavailable' });
 
-        const categories: Record<string, number> = {};
-        reports.forEach(r => {
-          categories[r.category] = (categories[r.category] || 0) + 1;
+    try {
+      const reportsRes = await pool.query('SELECT category, status, zone_name, zone_id FROM reports;');
+      const reports = reportsRes.rows;
+      const total = reports.length;
+      const resolved = reports.filter(r => r.status === 'resolved').length;
+      const open = total - resolved;
+
+      const categories: Record<string, number> = {};
+      reports.forEach(r => {
+        categories[r.category] = (categories[r.category] || 0) + 1;
+      });
+
+      const zones: Record<string, number> = {};
+      reports.forEach(r => {
+        zones[r.zone_name || r.zone_id] = (zones[r.zone_name || r.zone_id] || 0) + 1;
+      });
+
+      // Resolve avg hours from assignments
+      const assignRes = await pool.query(
+        `SELECT assigned_at, resolved_at, technician_id, technician_name FROM assignments;`
+      );
+      const assignments = assignRes.rows;
+      const resolvedAssignments = assignments.filter(a => a.resolved_at);
+
+      let avgHours = 24;
+      if (resolvedAssignments.length > 0) {
+        let totalMs = 0;
+        resolvedAssignments.forEach(a => {
+          const start = new Date(a.assigned_at).getTime();
+          const end = new Date(a.resolved_at).getTime();
+          totalMs += (end - start);
         });
+        avgHours = parseFloat((totalMs / (1000 * 60 * 60 * resolvedAssignments.length)).toFixed(1));
+      }
 
-        const zones: Record<string, number> = {};
-        reports.forEach(r => {
-          zones[r.zone_name || r.zone_id] = (zones[r.zone_name || r.zone_id] || 0) + 1;
-        });
+      // Tech stats
+      const techsRes = await pool.query('SELECT id, name FROM technicians;');
+      const technicians = techsRes.rows;
 
-        // Resolve avg hours from assignments
-        const assignRes = await pool.query(
-          `SELECT assigned_at, resolved_at, technician_id, technician_name FROM assignments;`
-        );
-        const assignments = assignRes.rows;
-        const resolvedAssignments = assignments.filter(a => a.resolved_at);
+      const technicianResolutionTimes: Record<string, { totalHours: number, count: number, name: string }> = {};
+      technicians.forEach(t => {
+        // Provide seed mock default data if no real resolutions exist
+        const seedHours = t.id === 'tech-1' ? 4.5 : 3.2;
+        const seedCount = t.id === 'tech-1' ? 12 : 15;
+        technicianResolutionTimes[t.id] = { 
+          totalHours: seedHours * seedCount, 
+          count: seedCount, 
+          name: t.name 
+        };
+      });
 
-        let avgHours = 24;
-        if (resolvedAssignments.length > 0) {
-          let totalMs = 0;
-          resolvedAssignments.forEach(a => {
-            const start = new Date(a.assigned_at).getTime();
-            const end = new Date(a.resolved_at).getTime();
-            totalMs += (end - start);
-          });
-          avgHours = parseFloat((totalMs / (1000 * 60 * 60 * resolvedAssignments.length)).toFixed(1));
+      assignments.forEach(a => {
+        if (a.resolved_at) {
+          const start = new Date(a.assigned_at).getTime();
+          const end = new Date(a.resolved_at).getTime();
+          const hours = (end - start) / (1000 * 60 * 60);
+          
+          if (!technicianResolutionTimes[a.technician_id]) {
+            technicianResolutionTimes[a.technician_id] = { totalHours: 0, count: 0, name: a.technician_name || 'Unknown' };
+          }
+          technicianResolutionTimes[a.technician_id].totalHours += hours;
+          technicianResolutionTimes[a.technician_id].count += 1;
         }
+      });
 
-        // Tech stats
-        const techsRes = await pool.query('SELECT id, name FROM technicians;');
-        const technicians = techsRes.rows;
-
-        const technicianResolutionTimes: Record<string, { totalHours: number, count: number, name: string }> = {};
+      const realResolvedExists = assignments.some(a => a.resolved_at);
+      if (realResolvedExists) {
         technicians.forEach(t => {
-          // Provide seed mock default data if no real resolutions exist
-          const seedHours = t.id === 'tech-1' ? 4.5 : 3.2;
-          const seedCount = t.id === 'tech-1' ? 12 : 15;
-          technicianResolutionTimes[t.id] = { 
-            totalHours: seedHours * seedCount, 
-            count: seedCount, 
-            name: t.name 
-          };
-        });
-
-        assignments.forEach(a => {
-          if (a.resolved_at) {
-            const start = new Date(a.assigned_at).getTime();
-            const end = new Date(a.resolved_at).getTime();
-            const hours = (end - start) / (1000 * 60 * 60);
-            
-            if (!technicianResolutionTimes[a.technician_id]) {
-              technicianResolutionTimes[a.technician_id] = { totalHours: 0, count: 0, name: a.technician_name || 'Unknown' };
-            }
-            technicianResolutionTimes[a.technician_id].totalHours += hours;
-            technicianResolutionTimes[a.technician_id].count += 1;
+          const techHasReal = assignments.some(a => a.technician_id === t.id && a.resolved_at);
+          if (!techHasReal) {
+            technicianResolutionTimes[t.id] = { totalHours: 0, count: 0, name: t.name };
+          } else {
+            const realAssignments = assignments.filter(a => a.technician_id === t.id && a.resolved_at);
+            let totalH = 0;
+            realAssignments.forEach(a => {
+              const start = new Date(a.assigned_at).getTime();
+              const end = new Date(a.resolved_at).getTime();
+              totalH += (end - start) / (1000 * 60 * 60);
+            });
+            technicianResolutionTimes[t.id] = {
+              totalHours: totalH,
+              count: realAssignments.length,
+              name: t.name
+            };
           }
         });
-
-        const realResolvedExists = assignments.some(a => a.resolved_at);
-        if (realResolvedExists) {
-          technicians.forEach(t => {
-            const techHasReal = assignments.some(a => a.technician_id === t.id && a.resolved_at);
-            if (!techHasReal) {
-              technicianResolutionTimes[t.id] = { totalHours: 0, count: 0, name: t.name };
-            } else {
-              const realAssignments = assignments.filter(a => a.technician_id === t.id && a.resolved_at);
-              let totalH = 0;
-              realAssignments.forEach(a => {
-                const start = new Date(a.assigned_at).getTime();
-                const end = new Date(a.resolved_at).getTime();
-                totalH += (end - start) / (1000 * 60 * 60);
-              });
-              technicianResolutionTimes[t.id] = {
-                totalHours: totalH,
-                count: realAssignments.length,
-                name: t.name
-              };
-            }
-          });
-        }
-
-        const technicianStats = Object.entries(technicianResolutionTimes).map(([id, data]) => ({
-          id,
-          name: data.name,
-          avgResolutionTimeHours: data.count > 0 ? parseFloat((data.totalHours / data.count).toFixed(1)) : 0,
-          resolvedCount: data.count
-        }));
-
-        return res.json({
-          total,
-          resolved,
-          open,
-          avgResolutionTimeHours: avgHours,
-          categories,
-          zones,
-          technicianStats
-        });
-      } catch (err) {
-        console.error('[PostgreSQL Error] Failed to calculate stats:', err);
       }
-    }
 
-    const reports = db.reports;
-    const total = reports.length;
-    const resolved = reports.filter(r => r.status === 'resolved').length;
-    const open = total - resolved;
-
-    // Categories counter
-    const categories: Record<string, number> = {};
-    reports.forEach(r => {
-      categories[r.category] = (categories[r.category] || 0) + 1;
-    });
-
-    // Zones counter
-    const zones: Record<string, number> = {};
-    reports.forEach(r => {
-      zones[r.zone_name || r.zone_id] = (zones[r.zone_name || r.zone_id] || 0) + 1;
-    });
-
-    // Calculate average resolution time (fake, derived from assignments)
-    const resolvedAssignments = db.assignments.filter((a: Assignment) => a.resolved_at);
-    let avgHours = 24; // default baseline
-    if (resolvedAssignments.length > 0) {
-      let totalMs = 0;
-      resolvedAssignments.forEach((a: Assignment) => {
-        const start = new Date(a.assigned_at).getTime();
-        const end = new Date(a.resolved_at!).getTime();
-        totalMs += (end - start);
-      });
-      avgHours = parseFloat((totalMs / (1000 * 60 * 60 * resolvedAssignments.length)).toFixed(1));
-    }
-
-    // Calculate average resolution time per technician
-    const technicianResolutionTimes: Record<string, { totalHours: number, count: number, name: string }> = {};
-    
-    // Seed default baseline for the technicians in our database
-    db.technicians.forEach((t: Technician) => {
-      const seedHours = t.id === 'tech-1' ? 4.5 : 3.2;
-      const seedCount = t.id === 'tech-1' ? 12 : 15;
-      technicianResolutionTimes[t.id] = { 
-        totalHours: seedHours * seedCount, 
-        count: seedCount, 
-        name: t.name 
-      };
-    });
-
-    db.assignments.forEach((a: Assignment) => {
-      if (a.resolved_at) {
-        const start = new Date(a.assigned_at).getTime();
-        const end = new Date(a.resolved_at).getTime();
-        const hours = (end - start) / (1000 * 60 * 60);
-        
-        if (!technicianResolutionTimes[a.technician_id]) {
-          technicianResolutionTimes[a.technician_id] = { totalHours: 0, count: 0, name: a.technician_name || 'Unknown' };
-        }
-        
-        technicianResolutionTimes[a.technician_id].totalHours += hours;
-        technicianResolutionTimes[a.technician_id].count += 1;
-      }
-    });
-
-    // Reset fallback seed records if there is at least one real resolved assignment
-    const realResolvedExists = db.assignments.some((a: Assignment) => a.resolved_at);
-    if (realResolvedExists) {
-      db.technicians.forEach((t: Technician) => {
-        const techHasReal = db.assignments.some((a: Assignment) => a.technician_id === t.id && a.resolved_at);
-        if (!techHasReal) {
-          technicianResolutionTimes[t.id] = { totalHours: 0, count: 0, name: t.name };
-        } else {
-          // Clear any mock data on that tech and calculate real values
-          const realAssignments = db.assignments.filter((a: Assignment) => a.technician_id === t.id && a.resolved_at);
-          let totalH = 0;
-          realAssignments.forEach((a: Assignment) => {
-            const start = new Date(a.assigned_at).getTime();
-            const end = new Date(a.resolved_at!).getTime();
-            totalH += (end - start) / (1000 * 60 * 60);
-          });
-          technicianResolutionTimes[t.id] = {
-            totalHours: totalH,
-            count: realAssignments.length,
-            name: t.name
-          };
-        }
-      });
-    }
-
-    const technicianStats = Object.entries(technicianResolutionTimes).map(([id, data]) => {
-      return {
+      const technicianStats = Object.entries(technicianResolutionTimes).map(([id, data]) => ({
         id,
         name: data.name,
         avgResolutionTimeHours: data.count > 0 ? parseFloat((data.totalHours / data.count).toFixed(1)) : 0,
         resolvedCount: data.count
-      };
-    });
+      }));
 
-    res.json({
-      total,
-      resolved,
-      open,
-      avgResolutionTimeHours: avgHours,
-      categories,
-      zones,
-      technicianStats
-    });
+      res.json({
+        total,
+        resolved,
+        open,
+        avgResolutionTimeHours: avgHours,
+        categories,
+        zones,
+        technicianStats
+      });
+    } catch (err) {
+      console.error('[PostgreSQL Error] Failed to calculate stats:', err);
+      res.status(500).json({ error: 'Database query failed' });
+    }
   });
 
   // Gemma AI Chat Bot FAQ & "Ask CamPulse" RAG Engine
@@ -2606,7 +2041,7 @@ Keep your response to exactly 1 or 2 concise, reassuring sentences. Do not use g
     }
 
     // Authenticate user (either from auth header, or body)
-    let user = getAuthenticatedUser(req);
+    let user = await getAuthenticatedUser(req);
     const resolvedRole = user?.role || userRole;
     const resolvedUserId = user?.id || userId;
     const resolvedName = user?.name || "System Administrator";
@@ -2622,20 +2057,26 @@ Keep your response to exactly 1 or 2 concise, reassuring sentences. Do not use g
       msgLower.includes('allocate')
     );
 
+    const pool = getPgPool();
+    if (!pool) return res.status(500).json({ error: 'Database unavailable' });
+
     if (isPotentialAssignment) {
       try {
         console.log('[Gemma Admin Dispatch] Detecting assignment intent and extracting details...');
-        const activeReports = db.reports.filter((r: Report) => r.status !== 'resolved');
-        const techniciansList = db.technicians;
+        const activeReportsRes = await pool.query("SELECT * FROM reports WHERE status != 'resolved'");
+        const activeReports = activeReportsRes.rows;
+
+        const techniciansRes = await pool.query("SELECT * FROM technicians;");
+        const techniciansList = techniciansRes.rows;
 
         const systemInstruction = `You are Gemma 4's task allocation controller for Ahmadu Bello University.
 Your job is to analyze the administrator's assignment command and match it to a specific active report and a qualified technician.
 
 Available Technicians:
-${techniciansList.map((t: Technician) => `- ID: "${t.id}" | Name: "${t.name}" | Skills: ${JSON.stringify(t.skill_tags)} | Current Load: ${t.current_load}`).join('\n')}
+${techniciansList.map((t: any) => `- ID: "${t.id}" | Name: "${t.name}" | Skills: ${JSON.stringify(t.skill_tags)} | Current Load: ${t.current_load}`).join('\n')}
 
 Active Reports:
-${activeReports.map((r: Report) => `- ID: "${r.id}" | Category: "${r.category}" | Location: "${r.zone_name}" | Description: "${r.description}"`).join('\n')}
+${activeReports.map((r: any) => `- ID: "${r.id}" | Category: "${r.category}" | Location: "${r.zone_name}" | Description: "${r.description}"`).join('\n')}
 
 Based on the admin command, determine:
 1. Is this a valid command to assign a task?
@@ -2667,45 +2108,44 @@ Return ONLY a strict JSON object (no markdown, no quotes, just raw JSON):
         const assignmentDetails = JSON.parse(jsonStr);
 
         if (assignmentDetails.is_assignment && assignmentDetails.report_id && assignmentDetails.technician_id) {
-          const targetReport = db.reports.find((r: Report) => r.id === assignmentDetails.report_id);
-          const targetTech = db.technicians.find((t: Technician) => t.id === assignmentDetails.technician_id);
+          const targetReportRes = await pool.query("SELECT * FROM reports WHERE id = $1;", [assignmentDetails.report_id]);
+          const targetReport = targetReportRes.rows[0];
+
+          const targetTechRes = await pool.query("SELECT * FROM technicians WHERE id = $1;", [assignmentDetails.technician_id]);
+          const targetTech = targetTechRes.rows[0];
 
           if (targetReport && targetTech) {
             const prevStatus = targetReport.status;
-            targetReport.status = 'assigned';
+            
+            // 1. Update report status
+            await pool.query("UPDATE reports SET status = 'assigned' WHERE id = $1;", [targetReport.id]);
 
-            // Create assignment record
-            const assignment: Assignment = {
-              id: `asg-${Date.now()}`,
-              report_id: targetReport.id,
-              technician_id: targetTech.id,
-              technician_name: targetTech.name,
-              assigned_at: new Date().toISOString()
-            };
-            db.assignments.push(assignment);
+            // 2. Insert assignment
+            const assignmentId = `asg-${Date.now()}`;
+            await pool.query(
+              `INSERT INTO assignments (id, report_id, technician_id, technician_name, assigned_at)
+               VALUES ($1, $2, $3, $4, NOW());`,
+              [assignmentId, targetReport.id, targetTech.id, targetTech.name]
+            );
 
-            // Increment workload
-            targetTech.current_load += 1;
+            // 3. Increment workload
+            await pool.query("UPDATE technicians SET current_load = current_load + 1 WHERE id = $1;", [targetTech.id]);
 
-            // Add administrative comment
-            db.comments.push({
-              id: `cmt-${Date.now()}`,
-              report_id: targetReport.id,
-              user_id: resolvedUserId || 'admin-system',
-              user_name: resolvedName,
-              user_role: 'admin',
-              text: `[AI Automated Task Assignment] Assigned to ${targetTech.name} via Gemma AI chat by Admin ${resolvedName}. Reason: ${assignmentDetails.explanation || 'Manual request.'}`,
-              created_at: new Date().toISOString()
-            });
+            // 4. Add admin comment
+            const commentId = `cmt-${Date.now()}`;
+            const commentText = `[AI Automated Task Assignment] Assigned to ${targetTech.name} via Gemma AI chat by Admin ${resolvedName}. Reason: ${assignmentDetails.explanation || 'Manual request.'}`;
+            await pool.query(
+              `INSERT INTO comments (id, report_id, user_id, user_name, user_role, text)
+               VALUES ($1, $2, $3, $4, $5, $6);`,
+              [commentId, targetReport.id, resolvedUserId || 'admin-system', resolvedName, 'admin', commentText]
+            );
 
-            saveDatabase(db);
-
-            // Notify technician
-            sendLiveNotification({
+            // 5. Send live notification
+            await sendLiveNotification({
               id: `notif-${Date.now()}-assign`,
               user_id: targetTech.user_id,
               title: '🛠️ New Task Assigned via AI Chat',
-              message: `You have been assigned to: "${targetReport.description.substring(0, 60)}..." in ${targetReport.zone_name} by AI Command.`,
+              message: `You have been assigned to: "${targetReport.description.substring(0, 60)}..." in ${targetReport.zone_name || 'ABU Campus'} by AI Command.`,
               type: 'new_assignment',
               reference_id: targetReport.id,
               read: false,
@@ -2713,7 +2153,7 @@ Return ONLY a strict JSON object (no markdown, no quotes, just raw JSON):
             });
 
             return res.json({
-              reply: `🤖 **Assignment Automation Executed Successfully!**\n\nI have automatically assigned **Ticket #${targetReport.id}** (${targetReport.category.replace('_', ' ').toUpperCase()} at *${targetReport.zone_name}*) to **${targetTech.name}**!\n\n**AI Matching Explanation:** ${assignmentDetails.explanation}\n\n${targetTech.name} has been notified instantly via real-time SSE stream. Queue load is now **${targetTech.current_load}** open assignments.`
+              reply: `🤖 **Assignment Automation Executed Successfully!**\n\nI have automatically assigned **Ticket #${targetReport.id}** (${targetReport.category.replace('_', ' ').toUpperCase()} at *${targetReport.zone_name || 'ABU Campus'}*) to **${targetTech.name}**!\n\n**AI Matching Explanation:** ${assignmentDetails.explanation}\n\n${targetTech.name} has been notified instantly via real-time SSE stream. Queue load is now **${targetTech.current_load + 1}** open assignments.`
             });
           }
         }
@@ -2723,24 +2163,29 @@ Return ONLY a strict JSON object (no markdown, no quotes, just raw JSON):
     }
 
     // Fall back to normal RAG search
-    // Keyword-based search inside our active database
     const keywords = ['suleiman', 'amina', 'ribadu', 'engineering', 'faculty', 'gate', 'borehole', 'water', 'leak', 'pipe', 'light', 'bulb', 'dark', 'wifi', 'internet', 'network', 'security', 'danger', 'lock', 'broken', 'wall', 'crack', 'roof', 'kongo', 'samaru'];
     const matchedKeywords = keywords.filter(kw => msgLower.includes(kw));
 
     // Retrieve matching reports
-    let retrievedReports: Report[] = [];
-    if (matchedKeywords.length > 0) {
-      retrievedReports = db.reports.filter((r: Report) => {
-        const desc = r.description.toLowerCase();
-        const cat = r.category.toLowerCase();
-        const zone = (r.zone_name || '').toLowerCase();
-        return matchedKeywords.some(kw => desc.includes(kw) || cat.includes(kw) || zone.includes(kw));
-      });
-    } else {
-      // If no specific keyword, retrieve 4 most recently updated tickets as generic context
-      retrievedReports = [...db.reports]
-        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-        .slice(0, 4);
+    let retrievedReports: any[] = [];
+    try {
+      if (matchedKeywords.length > 0) {
+        const conditions: string[] = [];
+        const queryParams: string[] = [];
+        matchedKeywords.forEach((kw, idx) => {
+          queryParams.push(`%${kw}%`);
+          conditions.push(`description ILIKE $${idx + 1} OR category ILIKE $${idx + 1} OR zone_name ILIKE $${idx + 1}`);
+        });
+        const searchSql = `SELECT * FROM reports WHERE ${conditions.join(' OR ')} LIMIT 10;`;
+        const reportsRes = await pool.query(searchSql, queryParams);
+        retrievedReports = reportsRes.rows;
+      } else {
+        // If no specific keyword, retrieve 4 most recently updated tickets as generic context
+        const recentRes = await pool.query('SELECT * FROM reports ORDER BY created_at DESC LIMIT 4;');
+        retrievedReports = recentRes.rows;
+      }
+    } catch (err) {
+      console.error('[PostgreSQL Error] Chat search query failed:', err);
     }
 
     try {
@@ -2827,23 +2272,28 @@ STUDENT QUERY: "${message}"`;
 
   // Feature 3: AI-generated triage summary for admin/maintenance dashboard
   app.get('/api/reports/triage-summary', async (req, res) => {
-    const activeReports = db.reports.filter((r: Report) => r.status !== 'resolved');
-
-    if (activeReports.length === 0) {
-      return res.json({
-        summary: `### 📋 Gemma 4 AI Maintenance Triage
-        
-No active unresolved maintenance tickets are currently logged in the database. Ahmadu Bello University campus systems are fully operational!`
-      });
-    }
+    const pool = getPgPool();
+    if (!pool) return res.status(500).json({ error: 'Database unavailable' });
 
     try {
-      console.log(`[Gemma Triage Summary] Compiling administrative digest for ${activeReports.length} open tickets...`);
-      const systemInstruction = `You are Gemma 4, the administrative triage officer for Ahmadu Bello University campus maintenance.
+      const activeRes = await pool.query("SELECT * FROM reports WHERE status != 'resolved';");
+      const activeReports = activeRes.rows;
+
+      if (activeReports.length === 0) {
+        return res.json({
+          summary: `### 📋 Gemma 4 AI Maintenance Triage
+          
+No active unresolved maintenance tickets are currently logged in the database. Ahmadu Bello University campus systems are fully operational!`
+        });
+      }
+
+      try {
+        console.log(`[Gemma Triage Summary] Compiling administrative digest for ${activeReports.length} open tickets...`);
+        const systemInstruction = `You are Gemma 4, the administrative triage officer for Ahmadu Bello University campus maintenance.
 Summarize all active unresolved maintenance reports into a short, highly structured, and prioritized digest.
 Structure your output to highlight the most critical hazards first, followed by general backlog, and provide immediate staffing dispatch recommendations.`;
 
-      const prompt = `Here are the active unresolved maintenance tickets currently in the database:
+        const prompt = `Here are the active unresolved maintenance tickets currently in the database:
 ${activeReports.map(r => `- [ID: ${r.id}] [Category: ${r.category}] [Severity: ${r.severity || 'medium'}] [Location: ${r.zone_name}] Description: "${r.description}" (🔺 ${r.upvotes} upvotes, Clustered: ${r.report_count || 1})`).join('\n')}
 
 Format your summary as a beautiful, highly professional Markdown digest. Be direct, crisp, and actionable. Do not use generic introductions. Focus purely on urgent security, flooding, or power issues. Include:
@@ -2851,124 +2301,130 @@ Format your summary as a beautiful, highly professional Markdown digest. Be dire
 2. **📋 ACTIVE REPORT ANALYSIS**: High-level grouping of other active issues (e.g., "3 lighting complaints, 1 WiFi outage").
 3. **🔧 DISPATCH GUIDANCE**: Recommendation of which technicians should handle which open tasks based on specialties (Musa Garba handles lighting, wifi, security; John Okoye handles plumbing, structural).`;
 
-      const summaryText = await callGemmaAI(prompt, systemInstruction, false);
-      res.json({ summary: summaryText });
-    } catch (err) {
-      console.error('[Gemma Triage Error] AI triage compilation failed. Generating programmatic fallback summary:', err);
-      // Fallback local summary builder (offline-first requirement)
-      const counts: Record<string, number> = {};
-      let urgentIssues: string[] = [];
-      activeReports.forEach((r: Report) => {
-        counts[r.category] = (counts[r.category] || 0) + 1;
-        if (r.priority_score >= 4) {
-          urgentIssues.push(`- **[${r.category.toUpperCase()}]** at ${r.zone_name}: "${r.description.substring(0, 80)}..."`);
-        }
-      });
+        const summaryText = await callGemmaAI(prompt, systemInstruction, false);
+        res.json({ summary: summaryText });
+      } catch (err) {
+        console.error('[Gemma Triage Error] AI triage compilation failed. Generating programmatic fallback summary:', err);
+        // Fallback local summary builder (offline-first requirement)
+        const counts: Record<string, number> = {};
+        let urgentIssues: string[] = [];
+        activeReports.forEach((r: any) => {
+          counts[r.category] = (counts[r.category] || 0) + 1;
+          if ((r.priority_score || 3) >= 4) {
+            urgentIssues.push(`- **[${r.category.toUpperCase()}]** at ${r.zone_name}: "${r.description.substring(0, 80)}..."`);
+          }
+        });
 
-      let localSummary = `### 📋 Gemma 4 AI Maintenance Triage (Local Offline Digest)
+        let localSummary = `### 📋 Gemma 4 AI Maintenance Triage (Local Offline Digest)
 
 *Notice: Gemma AI is currently offline. Generating automatic algorithmic triage summary.*
 
 #### 🚨 HIGH-PRIORITY HOTSPOTS
 ${urgentIssues.length > 0 
   ? urgentIssues.join('\n') 
-  : '• No active critical/high priority hazards detected on campus.'}
+  : '- No extremely critical tickets currently reported.'}
 
-#### 📋 ACTIVE BACKLOG BY CATEGORY
-${Object.entries(counts).map(([cat, cnt]) => `• **${cat.replace('_', ' ').toUpperCase()}**: ${cnt} active ticket(s)`).join('\n')}
+#### 📋 ACTIVE BACKLOG COUNTS
+${Object.entries(counts).map(([cat, count]) => `- **${cat.toUpperCase().replace('_', ' ')}**: ${count} open issues`).join('\n')}
 
-#### 🔧 STAFF ALLOCATION DIRECTIVE
+#### 🔧 DISPATCH GUIDANCE
 • **Musa Garba** is on standby for electrical issues (broken lights), wifi network interruptions, or security calls.
 • **John Okoye** is on standby for plumbing line bursts or structural building defects.`;
 
-      res.json({ summary: localSummary });
+        res.json({ summary: localSummary });
+      }
+    } catch (err) {
+      console.error('[PostgreSQL Error] Triage summary failed:', err);
+      res.status(500).json({ error: 'Database query failed' });
     }
   });
 
   // Gemma AI Weekly Report Summarizer for Admins
   app.post('/api/gemma/weekly-summary', async (req, res) => {
-    const reports = db.reports;
-
-    // Create map for fast comments count lookup
-    const commentsCountMap: Record<string, number> = {};
-    if (db.comments) {
-      db.comments.forEach((c: any) => {
-        commentsCountMap[c.report_id] = (commentsCountMap[c.report_id] || 0) + 1;
-      });
-    }
-
-    const reportsWithRank = reports.map((r: any) => {
-      const cCount = commentsCountMap[r.id] || 0;
-      return {
-        ...r,
-        comments_count: cCount,
-        gemma_rank_score: (r.priority_score * 15) + (r.upvotes * 5) + (cCount * 3)
-      };
-    });
-
-    if (reportsWithRank.length === 0) {
-      return res.json({ 
-        summary: `### 📊 Gemma 4 AI Weekly Digest
-        
-No maintenance tickets have been submitted yet. When students start reporting issues in ABU halls and faculties, I will compile structured executive insights, critical concerns, and technician dispatch recommendations here.` 
-      });
-    }
+    const pool = getPgPool();
+    if (!pool) return res.status(500).json({ error: 'Database unavailable' });
 
     try {
-      console.log('[Gemma AI] Generating weekly summary...');
-      
+      // Query reports and comments count together using an optimized JOIN query
+      const reportsRes = await pool.query(`
+        SELECT r.*, 
+          (SELECT COUNT(*)::int FROM comments WHERE report_id = r.id) as comments_count
+        FROM reports r
+        ORDER BY r.created_at DESC;
+      `);
+      const reports = reportsRes.rows;
+
+      const reportsWithRank = reports.map((r: any) => {
+        const cCount = r.comments_count || 0;
+        return {
+          ...r,
+          gemma_rank_score: (r.priority_score * 15) + (r.upvotes * 5) + (cCount * 3)
+        };
+      });
+
+      if (reportsWithRank.length === 0) {
+        return res.json({ 
+          summary: `### 📊 Gemma 4 AI Weekly Digest
+          
+No maintenance tickets have been submitted yet. When students start reporting issues in ABU halls and faculties, I will compile structured executive insights, critical concerns, and technician dispatch recommendations here.` 
+        });
+      }
+
+      try {
+        console.log('[Gemma AI] Generating weekly summary...');
+        
+        const totalTickets = reportsWithRank.length;
+        const resolved = reportsWithRank.filter((r: any) => r.status === 'resolved').length;
+        const open = totalTickets - resolved;
+        const categoriesSummary = reportsWithRank.reduce((acc: any, r: any) => {
+          acc[r.category] = (acc[r.category] || 0) + 1;
+          return acc;
+        }, {});
+        
+        const criticalReports = reportsWithRank
+          .filter((r: any) => (r.priority_score || 3) >= 4 && r.status !== 'resolved')
+          .map((r: any) => `[P${r.priority_score}] ${r.category} at ${r.zone_name}: "${r.description}" (${r.upvotes} upvotes, ${r.comments_count} complaints)`)
+          .join('\n');
+
+        const systemInstruction = `You are the executive advisor AI for Ahmadu Bello University administration.
+Generate a comprehensive, highly polished, structured weekly campus maintenance summary.`;
+
+        const prompt = `Generate a comprehensive weekly campus maintenance summary based on this data:
+        
+        - Total Logged Tickets: ${totalTickets}
+        - Resolved Tickets: ${resolved}
+        - Open Tickets: ${open}
+        - Category Breakdown: ${JSON.stringify(categoriesSummary)}
+        
+        Unresolved P4-P5 Critical Tickets:
+        ${criticalReports || 'None'}
+        
+        Generate a beautifully structured dashboard summary in markdown format with these exact headings:
+        ### 📌 Executive Overview
+        [A brief, professional summary of active tickets, resolution rates, and general campus health]
+        
+        ### 🚨 Critical Areas & Pain Points
+        [Detail any high-urgency zones, repeat hotspots e.g., water leaks in Suleiman, or security alarms. Mention upvotes and public student complaints/comments]
+        
+        ### 🛠️ Technician Dispatch & Resource Guidance
+        [Recommend where to deploy staff like Musa Garba (plumbing, structural) or John Okoye (broken lights, wifi) based on their specialties and pending ticket categories]
+        
+        ### 📈 Suggested Action Items
+        [Provide 3 clear, actionable recommendations for this week to improve student satisfaction and campus infrastructure]`;
+
+        const summary = await callGemmaAI(prompt, systemInstruction, false);
+        return res.json({ summary });
+      } catch (err) {
+        console.error('[Gemma AI Weekly Summary Error] AI generation failed. Falling back to quality local summary:', err);
+      }
+
+      // Quality offline fallback in case Gemma API is not available
       const totalTickets = reportsWithRank.length;
       const resolved = reportsWithRank.filter((r: any) => r.status === 'resolved').length;
       const open = totalTickets - resolved;
-      const categoriesSummary = reportsWithRank.reduce((acc: any, r: any) => {
-        acc[r.category] = (acc[r.category] || 0) + 1;
-        return acc;
-      }, {});
-      
-      const criticalReports = reportsWithRank
-        .filter((r: any) => r.priority_score >= 4 && r.status !== 'resolved')
-        .map((r: any) => `[P${r.priority_score}] ${r.category} at ${r.zone_name}: "${r.description}" (${r.upvotes} upvotes, ${r.comments_count} complaints)`)
-        .join('\n');
+      const critical = reportsWithRank.filter((r: any) => (r.priority_score || 3) >= 4 && r.status !== 'resolved');
 
-      const systemInstruction = `You are the executive advisor AI for Ahmadu Bello University administration.
-Generate a comprehensive, highly polished, structured weekly campus maintenance summary.`;
-
-      const prompt = `Generate a comprehensive weekly campus maintenance summary based on this data:
-      
-      - Total Logged Tickets: ${totalTickets}
-      - Resolved Tickets: ${resolved}
-      - Open Tickets: ${open}
-      - Category Breakdown: ${JSON.stringify(categoriesSummary)}
-      
-      Unresolved P4-P5 Critical Tickets:
-      ${criticalReports || 'None'}
-      
-      Generate a beautifully structured dashboard summary in markdown format with these exact headings:
-      ### 📌 Executive Overview
-      [A brief, professional summary of active tickets, resolution rates, and general campus health]
-      
-      ### 🚨 Critical Areas & Pain Points
-      [Detail any high-urgency zones, repeat hotspots e.g., water leaks in Suleiman, or security alarms. Mention upvotes and public student complaints/comments]
-      
-      ### 🛠️ Technician Dispatch & Resource Guidance
-      [Recommend where to deploy staff like Musa Garba (plumbing, structural) or John Okoye (broken lights, wifi) based on their specialties and pending ticket categories]
-      
-      ### 📈 Suggested Action Items
-      [Provide 3 clear, actionable recommendations for this week to improve student satisfaction and campus infrastructure]`;
-
-      const summary = await callGemmaAI(prompt, systemInstruction, false);
-      return res.json({ summary });
-    } catch (err) {
-      console.error('[Gemma AI Weekly Summary Error] AI generation failed. Falling back to quality local summary:', err);
-    }
-
-    // Quality offline fallback in case Gemma API is not available
-    const totalTickets = reportsWithRank.length;
-    const resolved = reportsWithRank.filter((r: any) => r.status === 'resolved').length;
-    const open = totalTickets - resolved;
-    const critical = reportsWithRank.filter((r: any) => r.priority_score >= 4 && r.status !== 'resolved');
-
-    let summary = `### 📊 Gemma 4 AI Weekly Insights (Offline Mode)
+      let summaryText = `### 📊 Gemma 4 AI Weekly Insights (Offline Mode)
 
 ### 📌 Executive Overview
 The campus has logged a total of **${totalTickets} tickets**, with **${resolved} resolved** and **${open} currently active**. The average resolution cycle remains around **24 hours**.
@@ -2989,7 +2445,11 @@ ${critical.length > 0
 2. **Pathways Illumination**: Address broken lighting complaints around Samaru hostel gates to secure campus walkways before dusk.
 3. **Queue Balancing**: Transition low-priority P1 tickets to off-peak schedules so technicians can focus on urgent crowdsourced issues.`;
 
-    res.json({ summary });
+      res.json({ summary: summaryText });
+    } catch (err) {
+      console.error('[PostgreSQL Error] Weekly summary failed:', err);
+      res.status(500).json({ error: 'Database query failed' });
+    }
   });
 
   // Vite development or production routing
