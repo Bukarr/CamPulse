@@ -1,7 +1,7 @@
 import React, { useEffect, useState, Suspense } from 'react';
 import { User, Report, UserRole, ReportStatus, Technician } from './types';
 import BottomNav from './components/BottomNav';
-import { Wifi, WifiOff, LogOut, ShieldCheck, Mail, Sparkles, Database, Bell, BellRing, X, ChevronRight, Check } from 'lucide-react';
+import { Wifi, WifiOff, LogOut, ShieldCheck, Mail, Sparkles, Database, Bell, BellRing, X, ChevronRight, Check, Moon, Sun } from 'lucide-react';
 import { Notification } from './types';
 import { syncOfflineReports } from './utils/offlineQueue';
 
@@ -42,6 +42,20 @@ function OfflineIndicator() {
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
+    return localStorage.getItem('campulse-darkmode') === 'true';
+  });
+
+  useEffect(() => {
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('campulse-darkmode', 'true');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('campulse-darkmode', 'false');
+    }
+  }, [isDarkMode]);
+
   const [token, setToken] = useState<string | null>(null);
   const [reports, setReports] = useState<Report[]>([]);
   const [currentTab, setCurrentTab] = useState<'map' | 'report' | 'workspace' | 'profile'>('map');
@@ -923,6 +937,34 @@ export default function App() {
                     <Database size={13} className="text-rose-500" />
                     <span>Persistent cache available for offline viewing</span>
                   </div>
+                </div>
+              </div>
+
+              {/* Theme Settings (Dark Mode) */}
+              <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3 shadow-xs">
+                <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider font-sans">🎨 Theme Settings</span>
+                <div className="flex items-center justify-between py-1">
+                  <div className="space-y-0.5">
+                    <div className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                      {isDarkMode ? <Moon size={13} className="text-emerald-500" /> : <Sun size={13} className="text-amber-500" />}
+                      <span>Night Mode</span>
+                    </div>
+                    <div className="text-[10px] text-slate-400">Dim the portal interface for night-time campus usage</div>
+                  </div>
+                  
+                  {/* Switch toggle */}
+                  <button
+                    onClick={() => setIsDarkMode(!isDarkMode)}
+                    className={`w-11 h-6 flex items-center rounded-full p-1 cursor-pointer transition-colors duration-300 focus:outline-hidden ${
+                      isDarkMode ? 'bg-emerald-600' : 'bg-slate-300'
+                    }`}
+                  >
+                    <div
+                      className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-300 ${
+                        isDarkMode ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
                 </div>
               </div>
 
