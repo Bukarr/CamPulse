@@ -1,7 +1,7 @@
 ### 💡 Inspiration
 **What local problem are you solving today?**
 
-Ahmadu Bello University (ABU) Zaria, Samaru Campus, is the largest university in Sub-Saharan Africa, accommodating over 50,000 students and staff across massive residential hostels and academic faculties. With a sprawling utility network in Northern Nigeria, physical infrastructure is prone to severe weather stresses and heavy load shedding. 
+Ahmadu Bello University (ABU) Zaria, Samaru Campus, is the largest university in Sub-Saharan Africa, accommodating over 50,000 students and staff across massive residential hostels and academic faculties. With a sprawling utility network in Northern Nigeria, physical infrastructure is prone to severe weather stresses and heavy load shedding.
 
 Maintenance complaints—such as borehole water line leakages, electrical power failures in lecture halls, and wireless network outages—often go unreported or delayed because of highly manual reporting routes. This results in student welfare issues, safety hazards, and academic disruption that can last for weeks.
 
@@ -24,8 +24,8 @@ Our implementation architecture focused on:
 **Tech Stack Frameworks:**
 - **Frontend UI:** React 19, Tailwind CSS v4, Recharts (analytics dashboards), Leaflet Maps (`react-leaflet` mapping interface), and HTML5 Geolocation API.
 - **Client Animation:** Fluid physics-based motions powered by **motion** (`motion/react`).
-- **Backend Core:** Node.js Express Server, compiled into a self-contained CommonJS bundle (`dist/server.cjs`) via `esbuild`.
-- **Database Layer:** PostgreSQL + PostGIS extension (hosted on Supabase) for fast spatial query execution and containment checks. Local JSON (`db.json`) acts as an operational dual-cache sync system.
+- **Backend Core:** Node.js Express Server running TypeScript, compiled into a self-contained CommonJS bundle (`dist/server.cjs`) via `esbuild`.
+- **Database Layer:** Dedicated PostgreSQL + PostGIS database, strictly utilizing PostgreSQL for all persistent state. Engineered with optimized indexes on foreign keys (`reporter_id`, `zone_id`, `report_id`, `user_id`), frequently filtered columns (`status`, `category`), and timestamp-sorted columns (`created_at DESC`) for blazing-fast database queries and smooth user experience.
 - **Real-Time Layer:** Server-Sent Events (SSE) `/api/events` connection keeping students, technicians, and administrators synced instantly.
 - **Offline Reliability:** Service Worker (`sw.js`) utilizing a custom cache hierarchy for pre-caching, navigation bypass, and network fallbacks, coupled with a reactive browser-level offline queuing panel.
 
