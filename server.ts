@@ -13,6 +13,7 @@ const _filename = isESM ? fileURLToPath(import.meta.url) : (typeof __filename !=
 const _dirname = isESM ? path.dirname(_filename) : (typeof __dirname !== 'undefined' ? __dirname : '');
 
 import pg from 'pg';
+import { abuGeoJson } from './src/data/abuZones';
 
 let pgPool: pg.Pool | null = null;
 
@@ -179,19 +180,34 @@ async function initializePostgres() {
       `);
     }
 
-    const zonesRes = await pool.query('SELECT COUNT(*) FROM zones;');
-    if (parseInt(zonesRes.rows[0].count, 10) === 0) {
-      console.log('[PostgreSQL] Seeding zones table...');
+    // Seed zones programmatically from abuGeoJson
+    console.log('[PostgreSQL] Programmatically seeding all 160+ campus zones from verified GeoJSON data...');
+    
+    // Seed general fallback zone
+    await pool.query(`
+      INSERT INTO zones (id, name, geom) VALUES
+        ('zone-other', 'ABU Campus (General)', ST_GeomFromText('POLYGON((7.600 11.125, 7.745 11.125, 7.745 11.175, 7.600 11.175, 7.600 11.125))', 4326))
+      ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, geom = EXCLUDED.geom;
+    `);
+
+    const zoneDelta = 0.0005; // ~50m half-width for highly precise local PostGIS containment
+    for (const feature of abuGeoJson.features) {
+      const id = feature.properties.zone_id;
+      const name = feature.properties.name;
+      const [lng, lat] = feature.geometry.coordinates;
+      
+      const p1 = `${lng - zoneDelta} ${lat - zoneDelta}`;
+      const p2 = `${lng + zoneDelta} ${lat - zoneDelta}`;
+      const p3 = `${lng + zoneDelta} ${lat + zoneDelta}`;
+      const p4 = `${lng - zoneDelta} ${lat + zoneDelta}`;
+      const polygonWkt = `POLYGON((${p1}, ${p2}, ${p3}, ${p4}, ${p1}))`;
+      
       await pool.query(`
-        INSERT INTO zones (id, name, geom) VALUES
-          ('zone-suleiman', 'Suleiman Hall', ST_GeomFromText('POLYGON((7.710 11.142, 7.715 11.142, 7.715 11.146, 7.710 11.146, 7.710 11.142))', 4326)),
-          ('zone-amina', 'Amina Hall', ST_GeomFromText('POLYGON((7.710 11.143, 7.713 11.143, 7.713 11.147, 7.710 11.147, 7.710 11.143))', 4326)),
-          ('zone-ribadu', 'Ribadu Hall', ST_GeomFromText('POLYGON((7.708 11.144, 7.712 11.144, 7.712 11.148, 7.708 11.148, 7.708 11.144))', 4326)),
-          ('zone-engineering', 'Faculty of Engineering', ST_GeomFromText('POLYGON((7.706 11.140, 7.711 11.140, 7.711 11.144, 7.706 11.144, 7.706 11.140))', 4326)),
-          ('zone-other', 'ABU Campus (General)', ST_GeomFromText('POLYGON((7.690 11.130, 7.730 11.130, 7.730 11.160, 7.690 11.160, 7.690 11.130))', 4326))
-        ON CONFLICT (id) DO NOTHING;
-      `);
+        INSERT INTO zones (id, name, geom) VALUES ($1, $2, ST_GeomFromText($3, 4326))
+        ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, geom = EXCLUDED.geom;
+      `, [id, name, polygonWkt]);
     }
+    console.log(`[PostgreSQL] Programmatically seeded ${abuGeoJson.features.length} campus zones successfully.`);
 
     const techsRes = await pool.query('SELECT COUNT(*) FROM technicians;');
     if (parseInt(techsRes.rows[0].count, 10) === 0) {
@@ -205,16 +221,14 @@ async function initializePostgres() {
       `);
     }
 
-    const reportsCountRes = await pool.query('SELECT COUNT(*) FROM reports;');
-    if (parseInt(reportsCountRes.rows[0].count, 10) === 0) {
-      console.log('[PostgreSQL] Seeding reports table with initial reports...');
-      await pool.query(`
-        INSERT INTO reports (id, reporter_id, reporter_name, category, description, lat, lng, zone_id, zone_name, status, priority_score, severity, location_hint, sentiment, report_count, upvotes, upvoted_by, created_at) VALUES
-          ('rep-seed-1', 'usr-student-1', 'Sani Bello', 'plumbing', 'Main borehole water pipe leaking near Suleiman Hostel Gate. Flooding the entrance walkway.', 11.1442, 7.7123, 'zone-suleiman', 'Suleiman Hall', 'submitted', 4, 'high', 'Suleiman Hostel Gate', 'frustrated', 1, 3, ARRAY['usr-student-2'], NOW() - INTERVAL '24 hours'),
-          ('rep-seed-2', 'usr-student-2', 'Amina Yusuf', 'broken_lights', 'Walkway lights completely dark from Faculty of Engineering to Ribadu Hall. Total blackout, high security concern.', 11.1465, 7.7110, 'zone-ribadu', 'Ribadu Hall', 'assigned', 5, 'urgent', 'Engineering to Ribadu Walkway', 'angry', 1, 5, ARRAY['usr-student-1'], NOW() - INTERVAL '12 hours')
-        ON CONFLICT (id) DO NOTHING;
-      `);
-    }
+    // Seed reports with precise ABU Samaru coordinates matching the new zones and including PostGIS point geom
+    console.log('[PostgreSQL] Seeding and updating reports table with precise seed reports...');
+    await pool.query(`
+      INSERT INTO reports (id, reporter_id, reporter_name, category, description, lat, lng, geom, zone_id, zone_name, status, priority_score, severity, location_hint, sentiment, report_count, upvotes, upvoted_by, created_at) VALUES
+        ('rep-seed-1', 'usr-student-1', 'Sani Bello', 'plumbing', 'Main borehole water pipe leaking near Suleiman Hostel Gate. Flooding the entrance walkway.', 11.1552, 7.6454, ST_SetSRID(ST_MakePoint(7.6454, 11.1552), 4326), 'hall-suleiman', 'Suleiman Hall', 'submitted', 4, 'high', 'Suleiman Hostel Gate', 'frustrated', 1, 3, ARRAY['usr-student-2'], NOW() - INTERVAL '24 hours'),
+        ('rep-seed-2', 'usr-student-2', 'Amina Yusuf', 'broken_lights', 'Walkway lights completely dark from Faculty of Engineering to Ribadu Hall. Total blackout, high security concern.', 11.1542, 7.6467, ST_SetSRID(ST_MakePoint(7.6467, 11.1542), 4326), 'hall-ribadu', 'Ribadu Hall', 'assigned', 5, 'urgent', 'Engineering to Ribadu Walkway', 'angry', 1, 5, ARRAY['usr-student-1'], NOW() - INTERVAL '12 hours')
+      ON CONFLICT (id) DO UPDATE SET lat = EXCLUDED.lat, lng = EXCLUDED.lng, geom = EXCLUDED.geom, zone_id = EXCLUDED.zone_id, zone_name = EXCLUDED.zone_name;
+    `);
 
     console.log('[PostgreSQL] Database schema fully initialized and verified!');
   } catch (err) {
@@ -1017,6 +1031,7 @@ async function startServer() {
         const containingZoneRes = await pool.query(
           `SELECT id, name FROM zones 
            WHERE ST_Contains(geom, ST_SetSRID(ST_MakePoint($1, $2), 4326)) 
+           ORDER BY ST_Area(geom) ASC 
            LIMIT 1;`,
           [parsedLng, parsedLat]
         );

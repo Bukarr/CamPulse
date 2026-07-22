@@ -122,7 +122,7 @@ const ZONE_CATEGORY_INFO: Record<string, { label: string; emoji: string; color: 
   infrastructure: { label: 'Utility', emoji: '⚙️', color: '#64748b' }
 };
 
-export const CAMPUS_BOUNDS = L.latLngBounds([11.135, 7.615], [11.170, 7.665]);
+export const CAMPUS_BOUNDS = L.latLngBounds([11.125, 7.600], [11.175, 7.745]);
 
 export function createZoneIcon(zone: AbuZone, isSelected: boolean) {
   const category = zone.category || 'amenity';
@@ -247,7 +247,7 @@ export default function MapComponent({
         className="w-full h-full z-10"
         style={{ background: '#0f172a' }}
         maxBounds={CAMPUS_BOUNDS}
-        minZoom={14}
+        minZoom={12}
       >
         <MapRecenter center={focusCoords} zoom={17} />
         <TileLayer
