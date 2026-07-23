@@ -188,7 +188,7 @@ export default function MapComponent({
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState<string>('all');
-  const [mapLayer, setMapLayer] = useState<'streets' | 'satellite' | 'dark'>('streets');
+  const [mapLayer, setMapLayer] = useState<'streets' | 'satellite'>('streets');
 
   const handleSelectZone = (zone: AbuZone) => {
     const center = getZoneCenter(zone);
@@ -252,17 +252,11 @@ export default function MapComponent({
         <MapRecenter center={focusCoords} zoom={17} />
         <TileLayer
           key={mapLayer}
-          attribution={
-            mapLayer === 'dark'
-              ? '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-              : '&copy; <a href="https://maps.google.com">Google Maps</a>'
-          }
+          attribution='&copy; <a href="https://maps.google.com">Google Maps</a>'
           url={
-            mapLayer === 'dark'
-              ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-              : mapLayer === 'streets'
-                ? "https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
-                : "https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}"
+            mapLayer === 'streets'
+              ? "https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
+              : "https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}"
           }
         />
         
@@ -467,13 +461,13 @@ export default function MapComponent({
           <button
             type="button"
             onClick={() => {
-              setMapLayer(prev => prev === 'streets' ? 'satellite' : prev === 'satellite' ? 'dark' : 'streets');
+              setMapLayer(prev => prev === 'streets' ? 'satellite' : 'streets');
             }}
             className="flex items-center gap-2 px-3 py-2 bg-slate-900/95 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-white rounded-xl shadow-lg transition-all duration-200 select-none"
           >
             <Compass className={`w-4 h-4 text-sky-400 ${mapLayer === 'satellite' ? 'animate-spin' : ''}`} style={{ animationDuration: '8s' }} />
             <span className="text-xs font-semibold">
-              {mapLayer === 'streets' ? 'Google Streets' : mapLayer === 'satellite' ? 'Google Satellite' : 'Dark Map'}
+              {mapLayer === 'streets' ? 'Google Streets' : 'Google Satellite'}
             </span>
           </button>
 

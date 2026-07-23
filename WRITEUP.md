@@ -3,8 +3,8 @@
 **Event:** GDG on Campus Ahmadu Bello University (ABU) Zaria Hackathon — "Build with Gemma"  
 **Track:** Gemma for Civic & Campus Life  
 **Project Name:** CamPulse  
-**Target Institution:** Ahmadu Bello University (Samaru Campus, Zaria, Kaduna State, Nigeria)  
-**Core Model:** Gemma 2 IT (`google/gemma-2-27b-it`) via Serverless Hugging Face Inference API  
+**Target Institution:** Ahmadu Bello University (Samaru & Kongo Campuses, Zaria, Kaduna State, Nigeria)  
+**Core Model Variant:** Gemma 4 31B-it (`google/gemma-4-31b-it`) via Serverless Hugging Face Inference API  
 **Database System:** PostgreSQL with PostGIS Spatial Extension (100% relational state, zero file-based mock databases)  
 **Live Web Application:** [https://ais-pre-afobnzdcbmxz5fgt7c367v-318574450449.europe-west2.run.app](https://ais-pre-afobnzdcbmxz5fgt7c367v-318574450449.europe-west2.run.app)
 
@@ -20,13 +20,13 @@ Ruptured water boreholes, prolonged electrical brownouts in overcrowded hostels 
 Currently, reporting these hazards relies on a manual paper-based bureaucracy. A student must draft a physical complaint letter and deliver it to hostel administrators, who manually log it and pass it to the maintenance division. By the time a maintenance crew is dispatched, weeks or months have elapsed, turning a minor leak into stagnant water pools or structural rot.
 
 ### Our Solution: CamPulse
-We engineered **CamPulse** to eliminate this communication gap and automate campus triage. CamPulse is a Progressive Web App (PWA) that acts as the real-time utility heartbeat of the ABU campus. It empowers students to instantly report maintenance issues, drop pinpoint geographic pins on a high-fidelity interactive map, attach photo proofs, or record multi-lingual audio complaints. 
+We engineered **CamPulse** to eliminate this communication gap and automate campus triage. CamPulse is a Progressive Web App (PWA) that acts as the real-time utility heartbeat of the ABU campus. It empowers students to instantly report maintenance issues, drop pinpoint geographic pins on a high-fidelity interactive map, attach photo proofs, or record voice recordings. 
 
-By combining real-time spatial queries inside **PostgreSQL + PostGIS** with the advanced reasoning capabilities of Google's **Gemma 2 27B-it**, CamPulse transforms unstructured, localized descriptions into prioritized, deduplicated, and actionable maintenance orders. It routes work orders instantly to technicians, updates students on resolution progress, and provides administrators with a comprehensive civic-health dashboard.
+By combining real-time spatial queries inside **PostgreSQL + PostGIS** with the advanced reasoning capabilities of Google's **Gemma 4 31b-it**, CamPulse transforms unstructured, localized descriptions into prioritized, deduplicated, and actionable maintenance orders. It routes work orders instantly to technicians, updates students on resolution progress, and provides administrators with a comprehensive civic-health dashboard.
 
 ---
 
-## 🛠️ 2. Architectural Design & The "Gemma-as-a-Service" (GaaS) Engine
+## 🛠️ 2. Architectural Design & The 'Gemma-as-a-Service' (GaaS) Backend
 
 ### Decoupled Hybrid Architecture
 The primary engineering constraint at ABU Zaria is **hostile connectivity**. Cellular bandwidth is highly congested, and concrete walls inside residential halls act as Faraday cages. Standard web applications that load heavy models client-side or fail completely on connection drops are non-viable.
@@ -47,17 +47,17 @@ CamPulse implements a decoupled **Gemma-as-a-Service (GaaS)** architecture on th
               ┌──────────────┴──────────────┐                │ (Queued Sync)
               ▼                             ▼                │
       ┌──────────────┐              ┌──────────────┐         │
-      │ PostgreSQL + │              │   Gemma 2    │◄────────┘
+      │ PostgreSQL + │              │   Gemma 4    │◄────────┘
       │   PostGIS    │              │ Triage Engine│ (Gemma-as-a-Service)
       └──────────────┘              └──────────────┘
 ```
 
 ### 1. Gemma-as-a-Service (GaaS) API Pipeline
-Our backend integrates with the serverless Hugging Face Inference API (`router.huggingface.co/v1`) using secure API credentials to query the instruction-tuned **`google/gemma-2-27b-it`** model. This offloads model weights and expensive GPU computing from the student's mobile device to high-availability cloud hardware. 
+Our backend integrates with the serverless Hugging Face Inference API (`router.huggingface.co/v1`) using secure API credentials to query the instruction-tuned **`google/gemma-4-31b-it`** model. This offloads model weights and expensive GPU computing from the student's mobile device to high-availability cloud hardware. By running Gemma server-side as a microservice (GaaS), student devices consume minimal cellular data and CPU energy, which is critical on budget smartphones with degraded battery health.
 
 To turn raw conversational complaints into structured data, we engineered specialized, schema-constrained prompt pipelines:
-* **The Intake Pipeline:** Receives raw student complaints (transcribed voice notes or text), cleans up localized slang (Hausa, Yoruba, Pidgin expressions), and categorizes the ticket into structured buckets: `broken_lights`, `plumbing`, `wifi_outage`, `security`, `structural`, or `others`.
-* **Structured JSON Extraction:** The prompt forces Gemma to return a strict, un-markdown-wrapped JSON payload containing:
+* **The Intake Pipeline:** Receives raw student complaints, cleans up localized slang (Hausa, Yoruba, Pidgin expressions), and categorizes the ticket into structured buckets: `broken_lights`, `plumbing`, `wifi_outage`, `security`, `structural`, or `others`.
+* **Structured JSON Extraction:** The prompt forces Gemma 4 to return a strict, un-markdown-wrapped JSON payload containing:
   ```json
   {
     "category": "plumbing",
@@ -68,7 +68,14 @@ To turn raw conversational complaints into structured data, we engineered specia
   ```
   Our backend extracts this text, scrubs accidental markdown blocks (e.g., ` ```json `), and parses it safely into our relational database schema.
 
-### 2. Zero-Latency Programmatic Fallbacks
+### 2. Strategic Human-in-the-Loop Voice Handling
+Unlike general AI applications that attempt flaky voice-to-text transcriptions, CamPulse purposely rejects server-side automated voice transcription. Due to the high diversity of ABU Zaria's student demographic—which features complex linguistic blending of Hausa, Yoruba, Igbo, and Nigerian Pidgin dialects along with diverse regional accents—standard automated speech-to-text engines yield high error rates. 
+To guarantee absolute fidelity, we implemented a **Human-in-the-Loop Voice Recording pipeline**:
+* Students record voice notes directly in the client PWA.
+* The raw audio data is packaged and sent securely to the backend without modification.
+* These recordings are pinned directly to the ticket dashboard, allowing administrators and technicians to play the exact voice record file. Bypassing faulty transcriptions ensures that the technician receives precise instructions straight from the student's voice, removing linguistic barriers and translation artifacts.
+
+### 3. Zero-Latency Programmatic Fallbacks
 If the external AI endpoint times out or is unreachable due to severe cellular latency, our backend **automatically flips to local heuristic engines** to guarantee uninterrupted operations:
 * **Heuristic Triage Fallback:** A fast, regular-expression-based keyword matrix matches phrases indicating immediate danger (e.g., *"sparking"*, *"exposed wire"*, *"flooding"*, *"dark corner"*) to calculate safety priority ranks (P1–P5) without relying on an LLM.
 * **Semantic Deduplication Fallback (Jaccard Indexing):** If a student submits a complaint and Gemma is unreachable, the server computes a normalized **Jaccard Word-Overlap Similarity** between the new report and nearby open complaints:
@@ -95,13 +102,13 @@ WHERE status != 'resolved'
 * `ST_MakePoint(lng, lat)`: Creates a spatial Point coordinate.
 * `ST_SetSRID(..., 4326)`: Projects the point onto the **WGS 84 ellipsoid** (the global coordinate standard used by GPS and Google Maps).
 * `geom::geography`: Casts the geometry data type to geography, converting spatial coordinates from flat planar units into spherical meter calculations.
-* `ST_DWithin(..., 100)`: Uses a bounding box and index-accelerated spatial scan to verify if coordinates lie within a true 100-meter sphere. This is highly performant and executes in **sub-2ms**.
+* `ST_DWithin(..., 100)`: Uses a bounding box and index-accelerated spatial scan to verify if coordinates lie within a true 100-meter sphere. This is highly performant and executes in **sub-2ms**, enabling high concurrency.
 
 ### 2. Gemma-Driven Semantic Clustering
-If the PostGIS query identifies open candidate issues in the immediate area, the system executes our **Semantic Deduplication Prompt** via Gemma-as-a-Service:
+If the PostGIS query identifies open candidate issues in the immediate area, the system executes our **Semantic Deduplication Prompt** via Gemma-as-a-Service using Gemma 4 31B-it:
 
 ```
-[System Input to Gemma 2]
+[System Input to Gemma 4]
 Compare this new campus maintenance report with nearby existing open reports.
 Determine if the new report describes the EXACT SAME physical issue at the exact same location.
 
@@ -127,7 +134,7 @@ If Gemma-as-a-Service determines they describe the same underlying issue, the ba
    WHERE id = $2;
    ```
 3. **Automated Status Logs:** An automated comment is appended to the original ticket to notify administrators:
-   `"⚠️ Duplicate Merged: Sani Bello's report was clustered here. 'borehole pipe cracked and spraying...' Reason: Gemma 4 clustering matched this report to existing ticket #rep-293 (confidence: 0.95)"`
+   `"⚠️ Duplicate Merged: Sani Bello's report was clustered here. Reason: Gemma 4 clustering matched this report to existing ticket #rep-293 (confidence: 0.95)"`
 4. **SSE Event Broadcast:** A real-time notification is broadcasted across the campus feed to keep the community informed.
 
 ---
@@ -145,10 +152,9 @@ A major hurdle when overlaying open-source Leaflet map layers (OpenStreetMap) wi
 * **Offline IndexedDB/LocalStorage Report Queue:** If a student logs a water leak or exposed wire in a dead-zone (e.g., deep in Suleiman Hall basement walkways), the report form intercepts the network failure, packages the coordinate data, voice note base64, or photo, and queues it locally.
 * **Reactive Sync:** Using the HTML5 `navigator.onLine` listener, the moment the student walks into an open area and regains cellular network, the PWA background handler executes an automated background sync, delivering the queued reports to our PostGIS database.
 
-### 3. Energy-Conservative UI Design (Low Battery Protection)
-ABU Zaria students experience frequent grid power load-shedding, meaning phone battery conservation is a survival priority. We designed CamPulse to be exceptionally resource-efficient:
-* **High-Contrast, User-Selectable Night Mode:** Built a specialized Night Mode toggle in Profile Settings that applies optimized CSS variable overrides to the DOM. It forces absolute off-black backgrounds, significantly reducing screen power draw on OLED and LCD displays during power blackouts.
-* **Data Payload Minimization:** Avoided heavy, polling-intensive client-side libraries. Real-time updates utilize ultra-lightweight **Server-Sent Events (SSE)** rather than high-overhead WebSockets, minimizing radio-frequency power draw and keeping cellular data consumption to a few kilobytes.
+### 3. Solar Legibility & Omission of Dark Mode
+To optimize for the high ambient lighting of Northern Nigeria, we purposely made a calculated UX choice: **we completely omitted dark mode from the application**. 
+Under the intense solar radiation and bright skies of Zaria, dark-mode interfaces suffer from severe reflections and glare, forcing mobile screens to boost backlight brightness to maximum levels. This excessively drains battery power. By standardizing on a single, highly refined **High-Contrast, Clean Light Theme (Slate & Amber accents)** with optimized typographic sizing, the app remains highly readable outdoors under direct sunlight with minimal screen brightness. This design choice directly conserves precious battery power and ensures comfortable student usage during day-to-day campus commutes.
 
 ---
 
@@ -162,7 +168,7 @@ From initial database design to the final optimized production build, we success
 * **Precise Coordinates Mapping:** Re-centered the entire campus spatial geography around ABU Zaria's real physical heart (**Kashim Ibrahim Library** at `11.15286`, `7.64770`) and updated all landmark point-coordinates for accurate localizations.
 
 ### Phase 2: Gemma-as-a-Service (GaaS) API Engineering
-* **Hugging Face API Pipeline:** Configured a secure server-side `callGemmaAI` helper function to execute queries against `google/gemma-2-27b-it` using direct Hugging Face API tokens.
+* **Hugging Face API Pipeline:** Configured a secure server-side `callGemmaAI` helper function to execute queries against the high-performance **`google/gemma-4-31b-it`** model using direct Hugging Face API tokens.
 * **Structured Output Sanitization:** Built a robust regex-based extraction pipeline to parse AI string outputs into raw, valid JSON, protecting the app from JSON-parsing crashes.
 * **Programmatic Failbacks:** Engineered offline Jaccard overlap similarity scoring (threshold: `0.35`) and rule-based priority mapping matrices to handle cellular outages.
 
@@ -171,9 +177,9 @@ From initial database design to the final optimized production build, we success
 * **Admin Control Center & AI Dispatcher:** Created real-time metrics dashboards (Recharts), workload grid boards, and an automated voice/text AI dispatcher that parses administrative intents to assign work orders.
 * **Technician Task Queues:** Implemented active job queues, stage transitions, and mandated photo proof-of-work upon resolution.
 
-### Phase 4: Offline Resilience, Night Mode, & Verification
+### Phase 4: Offline Resilience, Sunlight Optimization, & Verification
 * **PWA Cache & Offline Queue:** Implemented a robust Service Worker (`sw.js`) and reactive browser storage queue displaying cached items to students when disconnected.
-* **User-Selectable Night Mode:** Built a customized, `localStorage`-persisted dark mode toggle that adjusts DOM style configurations on the fly.
+* **Sunlight-Optimized Theme:** Hand-crafted a pure, high-contrast light layout omitting dark mode variables, dramatically improving sunlight readability and reducing smartphone battery drain.
 * **Rigorous Verification & Compiling:** Conducted full lint checks (`npm run lint`), compiled the final production bundle cleanly with zero errors or warnings, and successfully deployed to Cloud Run.
 
 ---

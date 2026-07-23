@@ -70,7 +70,7 @@ flowchart TD
 CamPulse is designed with three distinct, user-focused portals built on top of a highly optimized PostgreSQL real-time engine:
 
 ### 1. The Student Portal (Crowdsourced Reporting)
-*   **AI-Powered Multimodal Intake:** Students write a quick complaint or record a voice note in Hausa, English, or Pidgin. Optionally, they capture a before/after photo. Gemma 4 parses this raw, unstructured ingestion stream into structured JSON fields (Category, Severity, Sentiment, Location Hint) to populate the database.
+*   **AI-Powered Multimodal Intake:** Students write a quick complaint or record a voice note (which is attached directly for administrators and technicians to listen to, bypassing buggy automated transcriptions). Optionally, they capture a before/after photo. Gemma 4 parses the text descriptions into structured JSON fields (Category, Severity, Sentiment, Location Hint) to populate the database.
 *   **Geotagged Incident Mapping:** Leaflet-powered maps visualizes incidents across Samaru campus. Students drop a pin, select from 108 predefined campus POIs, or allow their GPS coordinate to find the nearest zone.
 *   **Crowdsourced Upvote Engine & Smart Ranking:** To avoid duplicate tickets and amplify core communal issues, students can upvote outstanding tickets. Issues are ranked automatically based on a smart priority algorithm:
     $$\text{Rank Score} = (\text{Priority Score} \times 15) + (\text{Upvotes} \times 5) + (\text{Comments} \times 3)$$

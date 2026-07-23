@@ -236,7 +236,7 @@ async function initializePostgres() {
   }
 }
 
-const PORT = process.env.PORT || 3000;
+const PORT = 3000;
 
 // Types for DB
 interface User {
