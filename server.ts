@@ -1706,11 +1706,16 @@ Keep your response to exactly 1 or 2 concise, reassuring sentences. Do not use g
 
       // Notify admin and subscribers on resolution
       if (status === 'resolved') {
+        const proofDetails = [];
+        if (photo_proof) proofDetails.push('Photo Proof');
+        if (voice_url) proofDetails.push('Voice Note');
+        const proofTag = proofDetails.length > 0 ? ` [${proofDetails.join(' & ')} Attached]` : '';
+
         await sendLiveNotification({
           id: `notif-${Date.now()}-inspect-finish-admin`,
           user_id: 'admin',
-          title: '✅ Inspection Finished & Resolved',
-          message: `Technician ${actorName} has confirmed finishing of the inspection and resolved Ticket #${id} (${report.category.replace('_', ' ').toUpperCase()}) in ${report.zone_name || 'ABU Campus'}.`,
+          title: '✅ Maintenance Completed & Submitted for Review',
+          message: `Technician ${actorName} completed Ticket #${id} (${report.category.replace('_', ' ').toUpperCase()} in ${report.zone_name || 'ABU Campus'}). Technician Input: "${comment_text || 'Maintenance completed successfully.'}"${proofTag}`,
           type: 'status_change',
           reference_id: id,
           read: false,

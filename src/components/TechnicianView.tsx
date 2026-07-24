@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Wrench, CheckCircle, Navigation, MapPin, Camera, Clock, AlertTriangle } from 'lucide-react';
+import { Wrench, CheckCircle, Navigation, MapPin, Camera, Clock, AlertTriangle, Search } from 'lucide-react';
 import { Report, ReportStatus } from '../types';
 import { MapContainer, TileLayer, Marker } from 'react-leaflet';
 import L from 'leaflet';
 import { Lightbox } from './Lightbox';
+import { MiniVoicePlayer } from './MiniVoicePlayer';
 
 // Create high-contrast SVG marker for precise map preview
 const PREVIEW_PIN_COLORS: Record<string, string> = {
@@ -54,6 +55,7 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
   const [timerInterval, setTimerInterval] = useState<NodeJS.Timeout | null>(null);
   const [voiceBase64, setVoiceBase64] = useState<string | undefined>(undefined);
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     fetchAssignedQueue();
@@ -215,6 +217,20 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
     reader.readAsDataURL(file);
   };
 
+  const filteredAssignedReports = assignedReports.filter((r) => {
+    const q = searchQuery.toLowerCase().trim();
+    if (!q) return true;
+    return (
+      r.description.toLowerCase().includes(q) ||
+      (r.reporter_name && r.reporter_name.toLowerCase().includes(q)) ||
+      (r.location_hint && r.location_hint.toLowerCase().includes(q)) ||
+      (r.zone_name && r.zone_name.toLowerCase().includes(q)) ||
+      (r.zone_id && r.zone_id.toLowerCase().includes(q)) ||
+      (r.category && r.category.toLowerCase().includes(q)) ||
+      (r.category && r.category.replace('_', ' ').toLowerCase().includes(q))
+    );
+  });
+
   return (
     <div id="technician-queue-view" className="space-y-5 overflow-y-auto max-h-full pb-20 pr-1 select-none">
       {/* Header */}
@@ -225,19 +241,35 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
         <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mt-1">ABU Samaru Campus Maintenance Assignments</p>
       </div>
 
+      {/* Search bar */}
+      <div className="bg-white border border-slate-200/80 p-3 rounded-2xl shadow-xs">
+        <div className="relative">
+          <Search className="absolute left-3 top-2.5 text-slate-400" size={14} />
+          <input
+            type="text"
+            placeholder="Search tasks by location, category, reporter, or description..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full text-xs bg-slate-50 border border-slate-200/80 rounded-xl pl-9 pr-3 py-2 text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-sans"
+          />
+        </div>
+      </div>
+
       {/* Task Queue List */}
       <div className="space-y-3">
         <h3 className="text-[10px] font-bold text-slate-400 flex items-center gap-1.5 uppercase tracking-widest font-mono">
-          👷 Assigned Task Feed ({assignedReports.length} Active)
+          👷 Assigned Task Feed ({filteredAssignedReports.length} Active)
         </h3>
 
-        {assignedReports.length === 0 ? (
+        {filteredAssignedReports.length === 0 ? (
           <div className="bg-slate-50 border border-slate-200 p-8 rounded-2xl text-center text-slate-400 text-xs font-semibold">
-            🎉 Amazing! Your task queue is completely empty. No current assignments.
+            {assignedReports.length === 0 
+              ? "🎉 Amazing! Your task queue is completely empty. No current assignments." 
+              : "🔍 No assigned tasks match your search criteria."}
           </div>
         ) : (
           <div className="space-y-3">
-            {assignedReports.map((report) => (
+            {filteredAssignedReports.map((report) => (
               <div
                 key={report.id}
                 className="bg-white border border-slate-200/80 p-4 rounded-2xl space-y-3 shadow-xs hover:border-slate-300 transition-colors"
@@ -269,6 +301,11 @@ export default function TechnicianView({ technicianUserId, reports, onUpdateStat
                 <p className="text-xs text-slate-600 leading-relaxed font-medium">
                   "{report.description}"
                 </p>
+
+                {/* Voice Note audio playback element if available */}
+                {report.voice_url && (
+                  <MiniVoicePlayer audioUrl={report.voice_url} interpretation={report.voice_interpretation} />
+                )}
 
                 {/* Photo summary */}
                 {report.photo_url && (

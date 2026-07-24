@@ -4,6 +4,7 @@ import { Report, ReportCategory, ReportStatus, Comment } from '../types';
 import { MapContainer, TileLayer, Marker } from 'react-leaflet';
 import L from 'leaflet';
 import { Lightbox } from './Lightbox';
+import { MiniVoicePlayer } from './MiniVoicePlayer';
 
 // Create high-contrast SVG marker for precise map preview
 const PREVIEW_PIN_COLORS: Record<string, string> = {
@@ -274,6 +275,10 @@ export default function StudentView({ userId, userName, reports, onUpvote, onAdd
                   <p className="text-xs text-slate-600 line-clamp-2 leading-relaxed">
                     {report.description}
                   </p>
+
+                  {report.voice_url && (
+                    <MiniVoicePlayer audioUrl={report.voice_url} interpretation={report.voice_interpretation} />
+                  )}
 
                   <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 flex-wrap gap-1">
                     <span className="flex items-center gap-1 font-semibold">

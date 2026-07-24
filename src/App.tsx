@@ -126,6 +126,20 @@ export default function App() {
   useEffect(() => {
     if (!currentUser) return;
 
+    // Load from local storage cache first for instant offline readiness
+    const localCacheKey = `campulse-notifications-${currentUser.id}`;
+    const cachedNotifs = localStorage.getItem(localCacheKey);
+    if (cachedNotifs) {
+      try {
+        const parsed = JSON.parse(cachedNotifs);
+        if (Array.isArray(parsed)) {
+          setNotifications(parsed);
+        }
+      } catch (e) {
+        console.warn('Failed to parse cached notifications');
+      }
+    }
+
     fetchNotifications();
     fetchTechnicians();
 
@@ -147,8 +161,14 @@ export default function App() {
           }
         }
 
-        // Add to state list
-        setNotifications(prev => [notif, ...prev]);
+        // Add to state list and update local cache
+        setNotifications(prev => {
+          const updated = [notif, ...prev.filter(n => n.id !== notif.id)];
+          try {
+            localStorage.setItem(`campulse-notifications-${currentUser.id}`, JSON.stringify(updated));
+          } catch (e) {}
+          return updated;
+        });
 
         // Show floating in-app toast
         setActiveToast(notif);
@@ -173,6 +193,15 @@ export default function App() {
       eventSource.close();
     };
   }, [currentUser?.id]);
+
+  // Sync notifications to localStorage whenever notifications change
+  useEffect(() => {
+    if (currentUser?.id && notifications.length > 0) {
+      try {
+        localStorage.setItem(`campulse-notifications-${currentUser.id}`, JSON.stringify(notifications));
+      } catch (e) {}
+    }
+  }, [notifications, currentUser?.id]);
 
   const fetchNotifications = async () => {
     if (!currentUser) return;
