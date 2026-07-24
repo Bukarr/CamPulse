@@ -13,7 +13,6 @@ const _filename = isESM ? fileURLToPath(import.meta.url) : (typeof __filename !=
 const _dirname = isESM ? path.dirname(_filename) : (typeof __dirname !== 'undefined' ? __dirname : '');
 
 import pg from 'pg';
-import { abuGeoJson } from './src/data/abuZones';
 
 let pgPool: pg.Pool | null = null;
 
@@ -179,35 +178,6 @@ async function initializePostgres() {
         ON CONFLICT (id) DO NOTHING;
       `);
     }
-
-    // Seed zones programmatically from abuGeoJson
-    console.log('[PostgreSQL] Programmatically seeding all 160+ campus zones from verified GeoJSON data...');
-    
-    // Seed general fallback zone
-    await pool.query(`
-      INSERT INTO zones (id, name, geom) VALUES
-        ('zone-other', 'ABU Campus (General)', ST_GeomFromText('POLYGON((7.600 11.125, 7.745 11.125, 7.745 11.175, 7.600 11.175, 7.600 11.125))', 4326))
-      ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, geom = EXCLUDED.geom;
-    `);
-
-    const zoneDelta = 0.0005; // ~50m half-width for highly precise local PostGIS containment
-    for (const feature of abuGeoJson.features) {
-      const id = feature.properties.zone_id;
-      const name = feature.properties.name;
-      const [lng, lat] = feature.geometry.coordinates;
-      
-      const p1 = `${lng - zoneDelta} ${lat - zoneDelta}`;
-      const p2 = `${lng + zoneDelta} ${lat - zoneDelta}`;
-      const p3 = `${lng + zoneDelta} ${lat + zoneDelta}`;
-      const p4 = `${lng - zoneDelta} ${lat + zoneDelta}`;
-      const polygonWkt = `POLYGON((${p1}, ${p2}, ${p3}, ${p4}, ${p1}))`;
-      
-      await pool.query(`
-        INSERT INTO zones (id, name, geom) VALUES ($1, $2, ST_GeomFromText($3, 4326))
-        ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, geom = EXCLUDED.geom;
-      `, [id, name, polygonWkt]);
-    }
-    console.log(`[PostgreSQL] Programmatically seeded ${abuGeoJson.features.length} campus zones successfully.`);
 
     const techsRes = await pool.query('SELECT COUNT(*) FROM technicians;');
     if (parseInt(techsRes.rows[0].count, 10) === 0) {
