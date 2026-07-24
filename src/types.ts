@@ -33,6 +33,7 @@ export interface Report {
   gemma_rank_score?: number;
   voice_url?: string;
   voice_interpretation?: string;
+  location_hint?: string;
 }
 
 export interface Technician {

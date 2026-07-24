@@ -14,6 +14,7 @@ export function Lightbox({ src, onClose, alt = 'Image Proof' }: LightboxProps) {
   const [position, setPosition] = React.useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = React.useState(false);
 
+  const lastTapRef = React.useRef<number>(0);
   const dragStartRef = React.useRef({ x: 0, y: 0 });
   const initialDistanceRef = React.useRef<number | null>(null);
   const initialZoomRef = React.useRef<number>(1);
@@ -40,8 +41,8 @@ export function Lightbox({ src, onClose, alt = 'Image Proof' }: LightboxProps) {
 
   if (!src) return null;
 
-  const handleZoomIn = (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleZoomIn = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
     setZoom(prev => {
       const nextZoom = Math.min(prev + 0.5, 5);
       if (nextZoom === 1) setPosition({ x: 0, y: 0 });
@@ -49,8 +50,8 @@ export function Lightbox({ src, onClose, alt = 'Image Proof' }: LightboxProps) {
     });
   };
 
-  const handleZoomOut = (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleZoomOut = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
     setZoom(prev => {
       const nextZoom = Math.max(prev - 0.5, 1);
       if (nextZoom === 1) setPosition({ x: 0, y: 0 });
@@ -63,11 +64,22 @@ export function Lightbox({ src, onClose, alt = 'Image Proof' }: LightboxProps) {
     setRotation(prev => (prev + 90) % 360);
   };
 
-  const handleReset = (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleReset = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
     setZoom(1);
     setRotation(0);
     setPosition({ x: 0, y: 0 });
+  };
+
+  const toggleDoubleTapZoom = () => {
+    setZoom(prev => {
+      if (prev > 1) {
+        setPosition({ x: 0, y: 0 });
+        return 1;
+      } else {
+        return 2.5;
+      }
+    });
   };
 
   // Mouse Handlers for Desktop Dragging
@@ -91,8 +103,18 @@ export function Lightbox({ src, onClose, alt = 'Image Proof' }: LightboxProps) {
     setIsDragging(false);
   };
 
-  // Touch Handlers for Pinch and Touch Dragging
+  // Touch Handlers for Pinch, Double-Tap, and Touch Dragging
   const handleTouchStart = (e: React.TouchEvent) => {
+    const now = Date.now();
+    if (e.touches.length === 1 && now - lastTapRef.current < 300) {
+      // Double tap detected - toggle zoom
+      e.preventDefault();
+      toggleDoubleTapZoom();
+      lastTapRef.current = 0;
+      return;
+    }
+    lastTapRef.current = now;
+
     if (e.touches.length === 2) {
       // Pinch to zoom initialization
       const t1 = e.touches[0];

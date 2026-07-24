@@ -84,7 +84,27 @@ export default function AdminDashboard({
 }: AdminDashboardProps) {
   const [technicians, setTechnicians] = useState<Technician[]>(propTechnicians);
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
+  const [selectedReportComments, setSelectedReportComments] = useState<any[]>([]);
   const [lightboxImg, setLightboxImg] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!selectedReport) {
+      setSelectedReportComments([]);
+      return;
+    }
+    const fetchComments = async () => {
+      try {
+        const res = await fetch(`/api/reports/${selectedReport.id}/comments`);
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          setSelectedReportComments(data);
+        }
+      } catch (err) {
+        console.error('Failed to load report comments', err);
+      }
+    };
+    fetchComments();
+  }, [selectedReport?.id]);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<ReportStatus | 'all'>('all');
   const [categoryFilter, setCategoryFilter] = useState<ReportCategory | 'all'>('all');
@@ -249,8 +269,15 @@ export default function AdminDashboard({
   // Filter and sort reports
   const filteredReports = reports
     .filter((r) => {
-      const matchesSearch = r.description.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                            (r.reporter_name && r.reporter_name.toLowerCase().includes(searchQuery.toLowerCase()));
+      const q = searchQuery.toLowerCase().trim();
+      const matchesSearch = !q || 
+                            r.description.toLowerCase().includes(q) || 
+                            (r.reporter_name && r.reporter_name.toLowerCase().includes(q)) ||
+                            (r.location_hint && r.location_hint.toLowerCase().includes(q)) ||
+                            (r.zone_name && r.zone_name.toLowerCase().includes(q)) ||
+                            (r.zone_id && r.zone_id.toLowerCase().includes(q)) ||
+                            (r.category && r.category.toLowerCase().includes(q)) ||
+                            (CATEGORY_LABELS[r.category] && CATEGORY_LABELS[r.category].toLowerCase().includes(q));
       const matchesStatus = statusFilter === 'all' || r.status === statusFilter;
       const matchesCategory = categoryFilter === 'all' || r.category === categoryFilter;
       const matchesZone = zoneFilter === 'all' || r.zone_id === zoneFilter;
@@ -579,7 +606,7 @@ export default function AdminDashboard({
             <Search className="absolute left-3 top-3 text-slate-400" size={14} />
             <input
               type="text"
-              placeholder="Search reports by keywords or reporter..."
+              placeholder="Search reports by location tags, category, reporter, or description..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full text-xs bg-slate-50 border border-slate-200/80 rounded-xl pl-9 pr-3 py-2.5 text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-500"
@@ -805,6 +832,38 @@ export default function AdminDashboard({
                       🔍 Tap to view full screen
                     </span>
                   </div>
+                </div>
+              )}
+
+              {/* Technician Maintenance Completion Review */}
+              {(selectedReport.status === 'resolved' || selectedReportComments.length > 0) && (
+                <div className="bg-emerald-50/40 border border-emerald-200/80 p-3.5 rounded-xl space-y-3 shadow-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] uppercase font-bold text-emerald-800 tracking-wider flex items-center gap-1 font-mono">
+                      <CheckSquare size={12} className="text-emerald-600" /> Technician Maintenance Input & Review
+                    </span>
+                    <span className="bg-emerald-100 text-emerald-800 text-[9px] font-extrabold px-2 py-0.5 rounded-full border border-emerald-200/60">
+                      {selectedReport.status === 'resolved' ? '✅ Completed & Verified' : '🛠️ Work Logged'}
+                    </span>
+                  </div>
+
+                  {selectedReportComments.length > 0 ? (
+                    <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                      {selectedReportComments.map((comment: any) => (
+                        <div key={comment.id} className="bg-white p-2.5 rounded-lg border border-slate-200/60 text-xs shadow-2xs">
+                          <div className="flex items-center justify-between text-[10px] text-slate-500 mb-1 font-mono">
+                            <span className="font-bold text-slate-700">{comment.user_name} ({comment.user_role})</span>
+                            <span>{new Date(comment.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                          </div>
+                          <p className="text-slate-700 font-medium leading-relaxed">"{comment.text}"</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-600 italic">
+                      Technician resolved this ticket. Attached photo proof & voice notes are accessible for full administrative review.
+                    </p>
+                  )}
                 </div>
               )}
 
