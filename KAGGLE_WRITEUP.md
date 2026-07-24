@@ -68,12 +68,14 @@ To turn raw conversational complaints into structured data, we engineered specia
   ```
   Our backend extracts this text, scrubs accidental markdown blocks (e.g., ` ```json `), and parses it safely into our relational database schema.
 
-### 2. Strategic Human-in-the-Loop Voice Handling
+### 2. Strategic Human-in-the-Loop Voice Handling & In-Line MiniVoicePlayer
 Unlike general AI applications that attempt flaky voice-to-text transcriptions, CamPulse purposely rejects server-side automated voice transcription. Due to the high diversity of ABU Zaria's student demographic—which features complex linguistic blending of Hausa, Yoruba, Igbo, and Nigerian Pidgin dialects along with diverse regional accents—standard automated speech-to-text engines yield high error rates. 
 To guarantee absolute fidelity, we implemented a **Human-in-the-Loop Voice Recording pipeline**:
 * Students record voice notes directly in the client PWA.
 * The raw audio data is packaged and sent securely to the backend without modification.
-* These recordings are pinned directly to the ticket dashboard, allowing administrators and technicians to play the exact voice record file. Bypassing faulty transcriptions ensures that the technician receives precise instructions straight from the student's voice, removing linguistic barriers and translation artifacts.
+* These recordings are pinned directly to the ticket dashboard and feed cards using an **Interactive In-Line MiniVoicePlayer** equipped with animated wave visualizers, seeking progress bars, duration timers, and instant play/pause controls.
+* Bypassing faulty transcriptions ensures that technicians and administrators receive precise instructions straight from the student's voice.
+* Furthermore, when a technician resolves an issue, they can attach a separate **completion audio note** (`resolution_voice_url`) routed directly to the Administrator Review Portal, while the student's original complaint audio note (`voice_url`) remains preserved and untouched on the ticket.
 
 ### 3. Zero-Latency Programmatic Fallbacks
 If the external AI endpoint times out or is unreachable due to severe cellular latency, our backend **automatically flips to local heuristic engines** to guarantee uninterrupted operations:
@@ -172,10 +174,10 @@ From initial database design to the final optimized production build, we success
 * **Structured Output Sanitization:** Built a robust regex-based extraction pipeline to parse AI string outputs into raw, valid JSON, protecting the app from JSON-parsing crashes.
 * **Programmatic Failbacks:** Engineered offline Jaccard overlap similarity scoring (threshold: `0.35`) and rule-based priority mapping matrices to handle cellular outages.
 
-### Phase 3: Multi-Role Civic Portals & Interactive Map Controls
-* **Student Reporting Hub:** Built a high-contrast React 19 UI allowing students to submit text/voice reports, upload base64 images, filter feeds, and view open issues.
-* **Admin Control Center & AI Dispatcher:** Created real-time metrics dashboards (Recharts), workload grid boards, and an automated voice/text AI dispatcher that parses administrative intents to assign work orders.
-* **Technician Task Queues:** Implemented active job queues, stage transitions, and mandated photo proof-of-work upon resolution.
+### Phase 3: Multi-Role Civic Portals & Interactive Controls
+* **Student Reporting Hub:** Built a high-contrast React 19 UI supporting official ABU Matriculation ID authentication (e.g. `U25MBBS1025`), text/voice submission, base64 images, interactive **In-Line MiniVoicePlayer** audio waveforms, and RAG conversational assistants.
+* **Admin Control Center & AI Dispatcher:** Created real-time metrics dashboards (Recharts), workload grid boards, dual audio review portals (student complaint vs technician resolution voice proof), and an automated voice/text AI dispatcher that parses administrative intents to assign work orders.
+* **Technician Task Queues:** Implemented active job queues with a real-time search filter, stage transitions, mandated photo proof-of-work, and completion voice notes upon resolution.
 
 ### Phase 4: Offline Resilience, Sunlight Optimization, & Verification
 * **PWA Cache & Offline Queue:** Implemented a robust Service Worker (`sw.js`) and reactive browser storage queue displaying cached items to students when disconnected.
