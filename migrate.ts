@@ -2,7 +2,6 @@ import pg from 'pg';
 import fs from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
-import { LANDMARKS_SEED } from './src/data/seedLandmarks';
 
 // Load environment variables from .env
 dotenv.config();
@@ -167,31 +166,6 @@ async function runMigration() {
         `, [u.id, u.google_id || null, u.name, u.email, u.role]);
       }
     }
-
-    // 5. Seed / Ensure Zones exist (with polygon geom)
-    console.log(`🔹 Step 5: Seeding ${LANDMARKS_SEED.length} verified university zones from dataset...`);
-    
-    // Seed general fallback zone
-    await pool.query(`
-      INSERT INTO zones (id, name, geom) VALUES
-        ('zone-other', 'ABU Campus (General)', ST_GeomFromText('POLYGON((7.600 11.125, 7.745 11.125, 7.745 11.175, 7.600 11.175, 7.600 11.125))', 4326))
-      ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, geom = EXCLUDED.geom;
-    `);
-
-    const zoneDelta = 0.0005; // ~50m half-width for highly precise local PostGIS containment
-    for (const landmark of LANDMARKS_SEED) {
-      const p1 = `${landmark.lng - zoneDelta} ${landmark.lat - zoneDelta}`;
-      const p2 = `${landmark.lng + zoneDelta} ${landmark.lat - zoneDelta}`;
-      const p3 = `${landmark.lng + zoneDelta} ${landmark.lat + zoneDelta}`;
-      const p4 = `${landmark.lng - zoneDelta} ${landmark.lat + zoneDelta}`;
-      const polygonWkt = `POLYGON((${p1}, ${p2}, ${p3}, ${p4}, ${p1}))`;
-      
-      await pool.query(`
-        INSERT INTO zones (id, name, geom) VALUES ($1, $2, ST_GeomFromText($3, 4326))
-        ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, geom = EXCLUDED.geom;
-      `, [landmark.id, landmark.name, polygonWkt]);
-    }
-    console.log(`✅ Programmatically seeded ${LANDMARKS_SEED.length} campus zones successfully.`);
 
     // 6. Migrate Technicians
     console.log(`🔹 Step 6: Migrating ${db.technicians?.length || 0} technicians...`);
