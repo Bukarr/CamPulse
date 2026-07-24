@@ -45,9 +45,13 @@ async function initializePostgres() {
         google_id VARCHAR(255),
         name VARCHAR(255) NOT NULL,
         email VARCHAR(255) NOT NULL,
-        role VARCHAR(50) NOT NULL
+        role VARCHAR(50) NOT NULL,
+        matric_no VARCHAR(50)
       );
     `);
+
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS matric_no VARCHAR(50);`);
+    await pool.query(`ALTER TABLE reports ADD COLUMN IF NOT EXISTS resolution_voice_url TEXT;`);
 
     await pool.query(`
       CREATE TABLE IF NOT EXISTS zones (
@@ -746,12 +750,12 @@ async function startServer() {
     }
   });
 
-  // Auth Google Mock/Verify
+  // Auth Google / Matric ID Mock/Verify
   app.post('/api/auth/google', async (req, res) => {
-    const { token, email, name, roleSelection } = req.body;
+    const { token, email, name, matricNo, roleSelection } = req.body;
     
     if (!email) {
-      return res.status(400).json({ error: 'Email is required' });
+      return res.status(400).json({ error: 'Email or Matric ID is required' });
     }
 
     // Google Identity verification restriction (restricted to specific domain)
@@ -769,9 +773,13 @@ async function startServer() {
     if (!pool) return res.status(500).json({ error: 'Database unavailable' });
 
     try {
-      const userRes = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+      const userRes = await pool.query('SELECT * FROM users WHERE email = $1 OR (matric_no IS NOT NULL AND matric_no = $2)', [email, matricNo || '']);
       if (userRes.rows.length > 0) {
         user = userRes.rows[0];
+        if (matricNo && !user.matric_no) {
+          await pool.query('UPDATE users SET matric_no = $1 WHERE id = $2', [matricNo, user.id]);
+          user.matric_no = matricNo;
+        }
       } else {
         // Determine role from email if possible, or use provided roleSelection
         let role: 'student' | 'admin' | 'technician' = 'student';
@@ -788,12 +796,13 @@ async function startServer() {
           google_id: token || `g-${Math.random().toString(36).substr(2, 9)}`,
           name: name || email.split('@')[0],
           email: email,
+          matric_no: matricNo || null,
           role: role
         };
 
         await pool.query(
-          `INSERT INTO users (id, google_id, name, email, role) VALUES ($1, $2, $3, $4, $5)`,
-          [user.id, user.google_id, user.name, user.email, user.role]
+          `INSERT INTO users (id, google_id, name, email, role, matric_no) VALUES ($1, $2, $3, $4, $5, $6)`,
+          [user.id, user.google_id, user.name, user.email, user.role, user.matric_no]
         );
 
         if (role === 'technician') {
@@ -1583,7 +1592,8 @@ Output your decision as a strict JSON object (no markdown, no quotes, just raw J
     }
 
     const { id } = req.params;
-    const { status, comment_text, photo_proof, voice_url } = req.body;
+    const { status, comment_text, photo_proof, voice_url, resolution_voice_url } = req.body;
+    const techVoiceNote = resolution_voice_url || voice_url || null;
 
     if (!status) return res.status(400).json({ error: 'Status is required' });
 
@@ -1614,14 +1624,14 @@ Output your decision as a strict JSON object (no markdown, no quotes, just raw J
 
       const prevStatus = report.status;
 
-      // Update report status and photos
+      // Update report status, photo_url, and resolution_voice_url (Keep main complaint voice_url untouched!)
       await pool.query(
         `UPDATE reports 
          SET status = $1, 
              photo_url = COALESCE($2, photo_url), 
-             voice_url = COALESCE($3, voice_url) 
+             resolution_voice_url = COALESCE($3, resolution_voice_url) 
          WHERE id = $4;`,
-        [status, photo_proof || null, voice_url || null, id]
+        [status, photo_proof || null, techVoiceNote, id]
       );
 
       // If resolved, close assignments

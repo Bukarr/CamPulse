@@ -6,6 +6,7 @@ export interface User {
   name: string;
   email: string;
   role: UserRole;
+  matric_no?: string;
 }
 
 export type ReportCategory = 'broken_lights' | 'plumbing' | 'wifi_outage' | 'security' | 'structural' | 'others';
@@ -33,6 +34,8 @@ export interface Report {
   gemma_rank_score?: number;
   voice_url?: string;
   voice_interpretation?: string;
+  resolution_voice_url?: string;
+  resolution_photo_url?: string;
   location_hint?: string;
 }
 

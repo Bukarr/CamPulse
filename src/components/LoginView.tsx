@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ShieldAlert, LogIn, Mail, RefreshCw, Compass, Map, Shield, Wrench } from 'lucide-react';
+import { ShieldAlert, LogIn, Mail, RefreshCw, Compass, Map, Shield, Wrench, IdCard } from 'lucide-react';
 import { User, UserRole } from '../types';
 
 interface LoginViewProps {
@@ -8,7 +8,8 @@ interface LoginViewProps {
 
 export default function LoginView({ onLoginSuccess }: LoginViewProps) {
   const [email, setEmail] = useState('');
-  const [name, setName] = useState('');
+  const [matricNo, setMatricNo] = useState('U25MBBS1025');
+  const [name, setName] = useState('Sani Bello');
   const [roleSelection, setRoleSelection] = useState<UserRole>('student');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -18,18 +19,34 @@ export default function LoginView({ onLoginSuccess }: LoginViewProps) {
     setError(null);
     setIsLoading(true);
 
-    if (!email.trim()) {
-      setError('Please provide an email address.');
-      setIsLoading(false);
-      return;
-    }
+    let finalEmail = email.trim().toLowerCase();
+    let finalMatricNo = '';
 
-    // Standard ABU email verification regex matching: @student.abu.edu.ng or @abu.edu.ng
-    const isABU = email.endsWith('.abu.edu.ng') || email.endsWith('@abu.edu.ng');
-    if (!isABU) {
-      setError('CamPulse is restricted to Ahmadu Bello University domains. Please use a @student.abu.edu.ng or @abu.edu.ng address.');
-      setIsLoading(false);
-      return;
+    if (roleSelection === 'student') {
+      const cleanMatric = matricNo.trim().toUpperCase();
+      // Matric ID format regex: U25MBBS1025 (U25 = Admission Year, MBBS/COSC/EENG = Course, 1025 = 4 digit index)
+      const matricRegex = /^[Uu]\d{2}[A-Za-z]{3,4}\d{4}$/;
+      if (!cleanMatric || !matricRegex.test(cleanMatric)) {
+        setError('Invalid Student Matric ID. Must follow ABU format e.g. U25MBBS1025 (U25 = Admission Year, MBBS = Department, 1025 = Student No.)');
+        setIsLoading(false);
+        return;
+      }
+      finalMatricNo = cleanMatric;
+      finalEmail = `${cleanMatric.toLowerCase()}@student.abu.edu.ng`;
+    } else {
+      if (!finalEmail) {
+        setError('Please provide a valid ABU staff or departmental email address.');
+        setIsLoading(false);
+        return;
+      }
+
+      // Standard ABU email verification regex matching: @student.abu.edu.ng or @abu.edu.ng
+      const isABU = finalEmail.endsWith('.abu.edu.ng') || finalEmail.endsWith('@abu.edu.ng');
+      if (!isABU) {
+        setError('CamPulse staff login is restricted to Ahmadu Bello University domains (@abu.edu.ng or @tech.abu.edu.ng).');
+        setIsLoading(false);
+        return;
+      }
     }
 
     try {
@@ -37,9 +54,10 @@ export default function LoginView({ onLoginSuccess }: LoginViewProps) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          token: `google-token-mock-${Date.now()}`,
-          email: email.trim().toLowerCase(),
-          name: name.trim() || email.split('@')[0],
+          token: `matric-token-${Date.now()}`,
+          email: finalEmail,
+          name: name.trim() || (finalMatricNo ? `Student (${finalMatricNo})` : finalEmail.split('@')[0]),
+          matricNo: finalMatricNo || undefined,
           roleSelection
         })
       });
@@ -61,16 +79,19 @@ export default function LoginView({ onLoginSuccess }: LoginViewProps) {
   };
 
   const fillMockEmail = (role: UserRole) => {
-    setName(role === 'student' ? 'Sani Bello' : role === 'admin' ? 'Prof. Ibrahim Usman' : 'Musa Garba');
-    if (role === 'student') {
-      setEmail('sbello@student.abu.edu.ng');
-    } else if (role === 'admin') {
-      setEmail('iusman@abu.edu.ng');
-    } else {
-      setEmail('mgarba@tech.abu.edu.ng');
-    }
     setRoleSelection(role);
     setError(null);
+    if (role === 'student') {
+      setName('Sani Bello');
+      setMatricNo('U25MBBS1025');
+      setEmail('sbello@student.abu.edu.ng');
+    } else if (role === 'admin') {
+      setName('Prof. Ibrahim Usman');
+      setEmail('iusman@abu.edu.ng');
+    } else {
+      setName('Musa Garba');
+      setEmail('mgarba@tech.abu.edu.ng');
+    }
   };
 
   return (
@@ -175,27 +196,78 @@ export default function LoginView({ onLoginSuccess }: LoginViewProps) {
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-[9px] uppercase font-bold text-slate-400 tracking-wider mb-1">
-                  Your Campus Email (.edu.ng)
+                  Desired Workspace Role
                 </label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-3 text-slate-500" size={14} />
-                  <input
-                    type="email"
-                    required
-                    placeholder="username@student.abu.edu.ng"
-                    value={email}
-                    onChange={(e) => {
-                      setEmail(e.target.value);
-                      setError(null);
-                    }}
-                    className="w-full text-xs bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2.5 text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-medium"
-                  />
-                </div>
+                <select
+                  value={roleSelection}
+                  onChange={(e) => {
+                    const newRole = e.target.value as UserRole;
+                    setRoleSelection(newRole);
+                    setError(null);
+                    if (newRole === 'student' && !matricNo) {
+                      setMatricNo('U25MBBS1025');
+                      setName('Sani Bello');
+                    }
+                  }}
+                  className="w-full text-xs bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-300 focus:outline-none font-semibold cursor-pointer"
+                >
+                  <option value="student">Student Portal (Matric ID Access)</option>
+                  <option value="admin">Administrator Portal (Staff Email)</option>
+                  <option value="technician">Technician Duty Queue (Staff Email)</option>
+                </select>
               </div>
+
+              {roleSelection === 'student' ? (
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[9px] uppercase font-bold text-emerald-400 tracking-wider">
+                      Student Matriculation ID (Matric ID)
+                    </label>
+                    <span className="text-[9px] text-slate-400 font-mono">e.g. U25MBBS1025</span>
+                  </div>
+                  <div className="relative">
+                    <IdCard className="absolute left-3 top-3 text-emerald-500" size={14} />
+                    <input
+                      type="text"
+                      required
+                      placeholder="U25MBBS1025"
+                      value={matricNo}
+                      onChange={(e) => {
+                        setMatricNo(e.target.value.toUpperCase());
+                        setError(null);
+                      }}
+                      className="w-full text-xs bg-slate-950 border border-emerald-900/50 focus:border-emerald-500 rounded-xl pl-9 pr-3 py-2.5 text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-mono font-bold tracking-wider"
+                    />
+                  </div>
+                  <p className="text-[9.5px] text-slate-400 mt-1 leading-normal font-sans">
+                    💡 <strong className="text-slate-300">Format Guide:</strong> <span className="font-mono text-emerald-300 font-bold">U25</span> (Year 2025) + <span className="font-mono text-emerald-300 font-bold">MBBS</span> (Course Code) + <span className="font-mono text-emerald-300 font-bold">1025</span> (Student Number)
+                  </p>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-[9px] uppercase font-bold text-slate-400 tracking-wider mb-1">
+                    Your Campus Email (.edu.ng)
+                  </label>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-3 text-slate-500" size={14} />
+                    <input
+                      type="email"
+                      required
+                      placeholder={roleSelection === 'admin' ? "iusman@abu.edu.ng" : "mgarba@tech.abu.edu.ng"}
+                      value={email}
+                      onChange={(e) => {
+                        setEmail(e.target.value);
+                        setError(null);
+                      }}
+                      className="w-full text-xs bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2.5 text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-medium"
+                    />
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="block text-[9px] uppercase font-bold text-slate-400 tracking-wider mb-1">
-                  Full Name (Optional)
+                  Full Name
                 </label>
                 <input
                   type="text"
@@ -204,21 +276,6 @@ export default function LoginView({ onLoginSuccess }: LoginViewProps) {
                   onChange={(e) => setName(e.target.value)}
                   className="w-full text-xs bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-medium"
                 />
-              </div>
-
-              <div>
-                <label className="block text-[9px] uppercase font-bold text-slate-400 tracking-wider mb-1">
-                  Desired Workspace Role
-                </label>
-                <select
-                  value={roleSelection}
-                  onChange={(e) => setRoleSelection(e.target.value as UserRole)}
-                  className="w-full text-xs bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-300 focus:outline-none font-semibold cursor-pointer"
-                >
-                  <option value="student">Student Portal</option>
-                  <option value="admin">Administrator Portal</option>
-                  <option value="technician">Technician Duty Queue</option>
-                </select>
               </div>
 
               <button
