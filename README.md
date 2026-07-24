@@ -57,7 +57,7 @@ flowchart TD
 | **Database** | PostgreSQL + PostGIS (Pure DB) | Full-fledged PostgreSQL database with PostGIS enabled. Leverages optimized performance indexing structures for instant queries and geospatial coordinates containment calculation. |
 | **AI Core** | Gemma 4 31B (`google/gemma-4-31b-it`) | The exact model identifier utilized across all AI features is **`google/gemma-4-31b-it`** (referenced internally as Gemma 4 31B variant). |
 | **AI Access** | Hugging Face Inference API | Directly routed to serverless or dedicated endpoints at `https://api-inference.huggingface.co` / `router.huggingface.co/v1` using standard headers and bearer tokens. |
-| **Authentication**| Google Identity SSO | Restricted exclusively to Ahmadu Bello University domains: `@student.abu.edu.ng`, `@tech.abu.edu.ng`, and `@abu.edu.ng`. |
+| **Authentication**| ABU Matriculation ID & SSO | Students log in using ABU Matric ID (e.g. `U25MBBS1025`), generating `@student.abu.edu.ng` accounts. Staff/Admins use `@abu.edu.ng` or `@tech.abu.edu.ng`. |
 | **Real-time** | Server-Sent Events (SSE) | Multi-client broadcast server for instant notification delivery of assignment and ticket status changes. |
 | **Mapping Engine** | `react-leaflet` (Leaflet) | Interactive Samaru campus canvas seeded with a custom dataset of exactly **108** distinct points of interest (hostels, gates, departments, and administrative centers). |
 
@@ -69,25 +69,26 @@ flowchart TD
 
 CamPulse is designed with three distinct, user-focused portals built on top of a highly optimized PostgreSQL real-time engine:
 
-### 1. The Student Portal (Crowdsourced Reporting)
-*   **AI-Powered Multimodal Intake:** Students write a quick complaint or record a voice note (which is attached directly for administrators and technicians to listen to, bypassing buggy automated transcriptions). Optionally, they capture a before/after photo. Gemma 4 parses the text descriptions into structured JSON fields (Category, Severity, Sentiment, Location Hint) to populate the database.
-*   **Geotagged Incident Mapping:** Leaflet-powered maps visualizes incidents across Samaru campus. Students drop a pin, select from 108 predefined campus POIs, or allow their GPS coordinate to find the nearest zone.
+### 1. The Student Portal (Crowdsourced Reporting & Authentic Access)
+*   **Ahmadu Bello University Matriculation ID Authentication:** Students authenticate using official ABU Matric ID format (e.g., `U25MBBS1025` where `U25` = 2025 admission year, `MBBS` = course code, `1025` = student index number), automatically generating an authenticated `@student.abu.edu.ng` campus account.
+*   **AI-Powered Multimodal Intake & In-line MiniVoicePlayer:** Students write a complaint or record an audio note. In the community feed and ticket details, an interactive **In-Line MiniVoicePlayer** displays custom animated audio waveforms, scrubbing bars, and playback duration timers for immediate playback right inside feed cards. Gemma 4 parses text descriptions into structured JSON fields (Category, Severity, Sentiment, Location Hint) to populate PostgreSQL.
+*   **Geotagged Incident Mapping:** Leaflet-powered maps visualize incidents across Samaru campus. Students drop a pin, select from 108 predefined campus POIs, or allow their GPS coordinate to find the nearest zone.
 *   **Crowdsourced Upvote Engine & Smart Ranking:** To avoid duplicate tickets and amplify core communal issues, students can upvote outstanding tickets. Issues are ranked automatically based on a smart priority algorithm:
     $$\text{Rank Score} = (\text{Priority Score} \times 15) + (\text{Upvotes} \times 5) + (\text{Comments} \times 3)$$
-*   **Reactive Offline Sync Queue:** Under weak 2G/3G campus connections, report submissions are captured locally in a local storage queue and displayed to the student in an **Offline Queued Tickets Panel**. When internet connection resumes, the queue is synced to the database automatically.
+*   **Reactive Offline Sync Queue:** Under weak 2G/3G campus connections, report submissions are captured in a local browser storage queue and displayed in an **Offline Queued Tickets Panel**. When internet connection resumes, the queue syncs automatically.
 *   **"Ask CamPulse" RAG Widget:** A floating conversational buddy. Students chat with Gemma 4 to search for open tickets, find nearest water boreholes, understand the app's priority calculation, or request guides.
 
 ### 2. The Admin Dashboard (Dispatch & High-Level Triage)
 *   **Intelligent AI Task Allocation Command Center:** Admins can type or speak dispatcher assignments (e.g., *"Assign Sani's plumbing leak to Musa Garba"*). Gemma 4 parses the text, isolates the report ID, maps the target skill, identifies the technician, and completes the assignment instantly.
-*   **Visual Board Triage & Drag-and-Drop Assignment:** A clean grid layout detailing active workloads. Admins can manually click or select specialized technicians (e.g., Musa Garba for electrical/WiFi, John Okoye for plumbing/structural) to distribute loads safely.
+*   **Visual Board Triage & Technician Reviews:** A clean grid layout detailing active workloads. Admins review student original voice notes (`voice_url`) alongside technician resolution voice proofs (`resolution_voice_url`), ensuring complete accountability and audit trailing.
 *   **Gemma AI Executive Summarizers:**
     *   *Live Triage Digest:* Compiles a high-level briefing of active campus complaints.
     *   *Weekly Insights Summary:* Synthesizes total tickets, resolution speeds, hotspot zones (e.g., water leakages in Amina Hall), technician backlogs, and generates three administrative suggestions.
-*   **Real-time Event Broadcaster:** Leverages Server-Sent Events (SSE) to broadcast status notifications instantly to interested users across the application.
+*   **Real-time Event Broadcaster:** Leverages Server-Sent Events (SSE) and local storage fallbacks to broadcast status notifications instantly to interested users across the application.
 
 ### 3. The Technician Portal (Active Workorder Execution)
-*   **Personal Worklist Queue:** Technicians log in to view a tailored worklist of tasks assigned to them, organized by severity levels.
-*   **Status Update Actions with Physical Proof:** Technicians can flag tasks as `in_progress` or `resolved`. Resolving a ticket requires entering resolution comments and uploading a base64 **photo proof** of the fixed facility.
+*   **Personal Worklist Queue & Real-Time Search Bar:** Technicians log in to view a tailored worklist of tasks assigned to them, with an instantaneous search bar to filter by description, reporter name, location hint, or category.
+*   **Status Update Actions with Dual Proofs:** Technicians can flag tasks as `in_progress` or `resolved`. Resolving a ticket enables entering resolution comments, attaching base64 **photo proof**, and recording an audio completion note (`resolution_voice_url`) for Admin review while leaving the student's original complaint audio preserved.
 *   **Worker Load Tracking:** Profile stats display current active loads to prevent technician burnout and balance resources across the division.
 
 ---

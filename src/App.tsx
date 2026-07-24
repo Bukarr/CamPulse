@@ -1,7 +1,7 @@
 import React, { useEffect, useState, Suspense } from 'react';
 import { User, Report, UserRole, ReportStatus, Technician } from './types';
 import BottomNav from './components/BottomNav';
-import { Wifi, WifiOff, LogOut, ShieldCheck, Mail, Sparkles, Database, Bell, BellRing, X, ChevronRight, Check } from 'lucide-react';
+import { Wifi, WifiOff, LogOut, ShieldCheck, Mail, Sparkles, Database, Bell, BellRing, X, ChevronRight, Check, IdCard } from 'lucide-react';
 import { Notification } from './types';
 import { syncOfflineReports } from './utils/offlineQueue';
 
@@ -941,13 +941,22 @@ export default function App() {
                     <div className="text-slate-500 flex items-center gap-1 mt-0.5 font-medium">
                       <Mail size={11} /> {currentUser.email}
                     </div>
+                    {currentUser.matric_no && (
+                      <div className="text-emerald-700 font-mono text-[11px] font-bold flex items-center gap-1 mt-0.5">
+                        <IdCard size={11} /> Matric ID: {currentUser.matric_no}
+                      </div>
+                    )}
                   </div>
                 </div>
 
                 <div className="pt-3 border-t border-slate-100 space-y-2 text-slate-500 leading-normal font-medium">
                   <div className="flex items-center gap-1.5">
                     <ShieldCheck size={13} className="text-emerald-600" />
-                    <span>Google SSO verified credential domain</span>
+                    <span>
+                      {currentUser.role === 'student'
+                        ? 'ABU Matriculation ID Verified Student Account (@student.abu.edu.ng)'
+                        : 'ABU Domain Verified Staff Credential (@abu.edu.ng)'}
+                    </span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <Database size={13} className="text-rose-500" />
