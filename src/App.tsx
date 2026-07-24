@@ -467,7 +467,7 @@ export default function App() {
 
   // Status Change API call
   const handleUpdateStatus = async (reportId: string, status: ReportStatus, commentText?: string, photoProof?: string, voiceProof?: string) => {
-    // 1. Optimistic Update
+    // 1. Optimistic Update (Keep main complaint voice_url untouched, attach technician completion voice note to resolution_voice_url)
     const previousReports = [...reports];
     setReports(prev => prev.map(r => {
       if (r.id === reportId) {
@@ -475,7 +475,7 @@ export default function App() {
           ...r, 
           status, 
           photo_url: photoProof || r.photo_url,
-          voice_url: voiceProof || r.voice_url
+          resolution_voice_url: voiceProof || r.resolution_voice_url
         };
       }
       return r;
@@ -493,7 +493,7 @@ export default function App() {
           technician_id: currentUser?.role === 'technician' ? currentUser.id : undefined,
           comment_text: commentText,
           photo_proof: photoProof,
-          voice_url: voiceProof
+          resolution_voice_url: voiceProof
         })
       });
       if (res.ok) {

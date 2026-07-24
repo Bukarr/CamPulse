@@ -15,6 +15,7 @@ import { abuZones } from '../data/abuZones';
 import { MapContainer, TileLayer, Marker } from 'react-leaflet';
 import L from 'leaflet';
 import { Lightbox } from './Lightbox';
+import { MiniVoicePlayer } from './MiniVoicePlayer';
 
 // Create high-contrast SVG marker for precise map preview
 const PREVIEW_PIN_COLORS: Record<string, string> = {
@@ -863,6 +864,18 @@ export default function AdminDashboard({
                     <p className="text-xs text-slate-600 italic">
                       Technician resolved this ticket. Attached photo proof & voice notes are accessible for full administrative review.
                     </p>
+                  )}
+
+                  {selectedReport.resolution_voice_url && (
+                    <div className="mt-3 pt-2 border-t border-emerald-200/60">
+                      <div className="text-[10px] font-bold text-emerald-900 uppercase tracking-wider mb-1 flex items-center gap-1 font-mono">
+                        🎙️ Technician Audio Completion Note (Admin Review Only)
+                      </div>
+                      <MiniVoicePlayer 
+                        audioUrl={selectedReport.resolution_voice_url} 
+                        interpretation="Technician recorded maintenance completion voice proof."
+                      />
+                    </div>
                   )}
                 </div>
               )}

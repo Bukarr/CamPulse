@@ -163,3 +163,5 @@ export const MiniVoicePlayer: React.FC<MiniVoicePlayerProps> = ({ audioUrl, inte
     </div>
   );
 };
+
+export default MiniVoicePlayer;
